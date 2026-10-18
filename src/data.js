@@ -1,5 +1,5 @@
 /* ================= ASD — données de démonstration (générées une fois, puis mises en cache dans le navigateur) ================= */
-const DB_KEY = 'asd.erp.data.v1';
+const DB_KEY = 'asd.erp.data.v2';
 const UI_KEY = 'asd.erp.ui.v1';
 
 function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
@@ -61,7 +61,10 @@ function seedData(){
   const daf = mkEmp('Direction','Directeur administratif et financier',dg.id,{sal:280000});
   const dcom = mkEmp('Direction','Directeur commercial',dg.id,{sal:260000});
   const dlog = mkEmp('Logistique','Responsable logistique',dg.id,{sal:150000});
-  const rsav = mkEmp('Atelier SAV','Responsable SAV',dg.id,{sal:160000});
+  const rsav = mkEmp('Service technique','Responsable service technique (SAV)',dg.id,{sal:160000});
+  const pdt = mkEmp('Réglementaire','Pharmacien directeur technique',dg.id,{sal:240000});
+  mkEmp('Réglementaire','Pharmacien assistant',pdt.id,{sal:120000});
+  mkEmp('Réglementaire','Chargée assurance qualité',pdt.id,{sal:95000});
   const rrh = mkEmp('Ressources humaines','Responsable RH',daf.id,{sal:140000});
   const ccpt = mkEmp('Comptabilité','Chef comptable',daf.id,{sal:150000});
   const rdsi = mkEmp('Informatique','Responsable informatique',daf.id,{sal:145000});
@@ -74,8 +77,8 @@ function seedData(){
   const magasiniers = depots.map(d => mkEmp('Magasin','Chef magasinier',dlog.id,{sal:ri(55000,70000),depot:d.id,wilaya:d.wilaya}));
   depots.forEach((d,i) => { if(i<3) mkEmp('Magasin','Magasinier',magasiniers[i].id,{sal:ri(42000,50000),depot:d.id,wilaya:d.wilaya}); });
   const techs = [];
-  for (let i=0;i<7;i++) techs.push(mkEmp('Atelier SAV',i<2?'Technicien électronique senior':'Technicien électronique',rsav.id,{sal:ri(60000,98000)}));
-  mkEmp('Atelier SAV','Agent d’accueil SAV',rsav.id,{sal:46000});
+  for (let i=0;i<6;i++) techs.push(mkEmp('Service technique',i<2?'Technicien biomédical senior':'Technicien biomédical',rsav.id,{sal:ri(60000,98000)}));
+  mkEmp('Service technique','Agent d’accueil SAV',rsav.id,{sal:46000});
   for (let i=0;i<4;i++) mkEmp('Comptabilité',i===0?'Comptable principal':'Comptable',ccpt.id,{sal:ri(58000,90000)});
   mkEmp('Comptabilité','Caissière',ccpt.id,{sal:48000});
   mkEmp('Ressources humaines','Chargée RH',rrh.id,{sal:62000});
@@ -88,7 +91,7 @@ function seedData(){
     if (r < .22) { e.contrat='CDD'; e.dateEmbauche = dayAgo(ri(60,520)); e.finContrat = addDays(TODAY, ri(-10,200)); }
     else if (r < .30) { e.contrat='Période d’essai'; e.dateEmbauche = dayAgo(ri(10,80)); e.finContrat = addDays(e.dateEmbauche, 90); }
   });
-  for (let i=0;i<3;i++){ const e = mkEmp(pick(['Magasin','Commercial','Atelier SAV']), pick(['Magasinier','Commercial terrain','Technicien électronique']), pick([dlog.id,dcom.id,rsav.id])); e.statut='Sorti'; e.dateSortie = dayAgo(ri(20,300)); }
+  for (let i=0;i<3;i++){ const e = mkEmp(pick(['Magasin','Commercial','Service technique']), pick(['Magasinier','Commercial terrain','Technicien biomédical']), pick([dlog.id,dcom.id,rsav.id])); e.statut='Sorti'; e.dateSortie = dayAgo(ri(20,300)); }
 
   const conges = [];
   const TYPES_C = ['Congé annuel','Congé annuel','Congé annuel','Maladie','Exceptionnel','Récupération','Sans solde'];
@@ -111,23 +114,26 @@ function seedData(){
   });
 
   /* ---------- Articles ---------- */
+  // Catalogue : produits pharmaceutiques, réactifs, consommables et matériel de laboratoire
+  // per = suivi par lot et date de péremption ; ser = suivi par n° de série (garantie)
+  // buy = quantités achetées, big = vente en gros (grossistes, hôpitaux…), small = vente au détail (officines, labos…)
   const CATS = [
-    {cat:'Valises de diagnostic',items:['Valise diag multimarque','Scanner pro tablette 10"','Interface OBD2 Bluetooth','Testeur de batterie numérique','Station de programmation'],brands:['Launch','Autel','Delphi','Texa','Bosch'],p:[28000,480000],ser:true,g:[12,24]},
-    {cat:'Calculateurs & modules',items:['Calculateur moteur EDC17','Calculateur ABS/ESP','Module BSI','Calculateur airbag','Module confort','Boîtier papillon motorisé'],brands:['Bosch','Continental','Siemens VDO','Magneti Marelli','Denso'],p:[24000,190000],ser:true,g:[6,12]},
-    {cat:'Capteurs',items:['Capteur PMH','Sonde lambda','Débitmètre d’air','Capteur ABS','Capteur pression rail','Capteur arbre à cames'],brands:['Bosch','NGK','Valeo','Hella'],p:[2400,19000],ser:false,g:[6]},
-    {cat:'Écrans & combinés',items:['Combiné compteur','Écran multimédia 9"','Afficheur climatisation','Caméra de recul'],brands:['Continental','Visteon','Valeo'],p:[14000,72000],ser:true,g:[12]},
-    {cat:'Alimentation & charge',items:['Chargeur intelligent 12/24V','Booster de démarrage','Convertisseur 12/220V','Maintien de charge OBD'],brands:['CTEK','Noco','Telwin'],p:[6500,58000],ser:true,g:[12,24]},
-    {cat:'Câbles & connectique',items:['Câble OBD 16 broches','Faisceau adaptateur','Connecteur ECU 121 broches','Câble banc ECU'],brands:['Launch','Autel','Générique'],p:[800,9500],ser:false,g:[3]},
-    {cat:'Outillage atelier',items:['Multimètre automobile','Oscilloscope 4 voies','Programmateur de clés','Station de soudage','Endoscope numérique'],brands:['Fluke','Hantek','Xhorse','Weller'],p:[9000,260000],ser:true,g:[12]},
-    {cat:'Consommables',items:['Pâte thermique','Kit étain de soudure','Gaine thermorétractable','Nettoyant contacts','Flux de soudure'],brands:['Würth','Kontakt','Générique'],p:[300,2600],ser:false,g:[0]},
+    {cat:'Médicaments génériques',code:'MED',items:[['Paracétamol 500 mg, boîte de 20','Boîte'],['Amoxicilline 1 g, boîte de 12','Boîte'],['Oméprazole 20 mg, boîte de 14','Boîte'],['Metformine 850 mg, boîte de 30','Boîte'],['Ibuprofène 400 mg, boîte de 20','Boîte'],['Amlodipine 5 mg, boîte de 30','Boîte'],['Azithromycine 500 mg, boîte de 3','Boîte'],['Salbutamol 100 µg, aérosol','Flacon'],['Sérum physiologique 0,9 %, 500 ml','Flacon']],brands:['Cirta Génériques','Atlas Pharma','Mumbai Generics','El Bahia Pharma'],p:[90,780],ser:false,per:true,g:[0],min:[800,2500],buy:[2000,12000],big:[300,3000],small:[10,120]},
+    {cat:'Réactifs de laboratoire',code:'REA',items:[['Kit glycémie GOD-PAP, 4 × 100 ml','Coffret'],['Kit cholestérol total, 2 × 100 ml','Coffret'],['Réactif CRP latex, 100 tests','Coffret'],['Kit HbA1c, 50 tests','Coffret'],['Réactif TP / INR, 10 × 4 ml','Coffret'],['Kit créatinine, 4 × 50 ml','Coffret'],['Groupage sanguin ABO-D, 3 × 10 ml','Coffret']],brands:['Lyon BioDiagnostic','Milano Reagenti','Hamburg Diagnostika'],p:[2200,38000],ser:false,per:true,g:[0],min:[30,90],buy:[60,320],big:[20,150],small:[2,20]},
+    {cat:'Consommables de laboratoire',code:'CSL',items:[['Tubes EDTA 4 ml, boîte de 100','Boîte'],['Tubes secs avec gel, boîte de 100','Boîte'],['Embouts de pipette 200 µl, sachet de 1000','Sachet'],['Boîtes de Pétri 90 mm, carton de 500','Carton'],['Lames porte-objet, boîte de 50','Boîte'],['Gants nitrile taille M, boîte de 100','Boîte'],['Seringues 5 ml, boîte de 100','Boîte'],['Écouvillons stériles, boîte de 100','Boîte']],brands:['Hangzhou LabWare','Médi Consommables','Istanbul Medikal'],p:[320,4200],ser:false,per:true,g:[0],min:[200,800],buy:[500,4000],big:[100,1500],small:[5,60]},
+    {cat:'Dispositifs médicaux',code:'DMD',items:[['Tensiomètre électronique bras','Unité'],['Glucomètre avec 10 bandelettes','Unité'],['Oxymètre de pouls','Unité'],['Thermomètre infrarouge sans contact','Unité'],['Nébuliseur à compresseur','Unité'],['Bandelettes glycémie, boîte de 50','Boîte']],brands:['Shenzhen MedDevice','Vitalis','Medikor'],p:[1800,16000],ser:false,per:false,g:[12,24],min:[40,140],buy:[60,300],big:[20,160],small:[1,8]},
+    {cat:'Équipements de laboratoire',code:'EQP',items:[['Centrifugeuse de paillasse 12 tubes','Unité'],['Microscope binoculaire LED','Unité'],['Analyseur de biochimie semi-automatique','Unité'],['Spectrophotomètre UV-Visible','Unité'],['Incubateur bactériologique 50 L','Unité'],['Balance analytique 0,1 mg','Unité'],['Agitateur vortex','Unité'],['Bain-marie numérique 12 L','Unité'],['Automate d’hématologie 3 diff','Unité']],brands:['LabNova','BioScan','Frankfurt Labortechnik','Seoul BioTech'],p:[32000,2600000],ser:true,per:false,g:[6,12,24],min:[2,6],buy:[2,8],big:[1,4],small:[1,2]},
+    {cat:'Verrerie de laboratoire',code:'VER',items:[['Bécher forme basse 250 ml','Unité'],['Fiole jaugée classe A 100 ml','Unité'],['Éprouvette graduée 100 ml','Unité'],['Pipettes graduées 10 ml, lot de 10','Lot'],['Erlenmeyer 500 ml','Unité']],brands:['GlassPro','Barcelona Vidrio','Benali Verrerie'],p:[260,3800],ser:false,per:false,g:[0],min:[100,400],buy:[200,1500],big:[50,500],small:[5,40]},
+    {cat:'Hygiène & désinfection',code:'HYG',items:[['Solution hydroalcoolique 500 ml','Flacon'],['Désinfectant de surfaces 5 L','Bidon'],['Alcool éthylique 70°, 1 L','Flacon'],['Masques chirurgicaux type IIR, boîte de 50','Boîte'],['Blouses jetables, paquet de 10','Paquet']],brands:['Cleanex','Hygena','Sétif Hygiène Pro'],p:[180,3200],ser:false,per:true,g:[0],min:[300,900],buy:[800,5000],big:[100,1200],small:[5,60]},
+    {cat:'Parapharmacie',code:'PAR',items:[['Crème hydratante peaux sèches 50 ml','Unité'],['Écran solaire SPF 50+, 50 ml','Unité'],['Lait infantile 1er âge 400 g','Boîte'],['Complément vitamine D3 1000 UI','Boîte'],['Shampooing dermatologique 200 ml','Flacon']],brands:['Tassili Parapharm','Dermalia','Nutrikid'],p:[380,3400],ser:false,per:true,g:[0],min:[150,500],buy:[300,2500],big:[60,600],small:[3,36]},
   ];
   const articles = []; let refN = 1000;
-  CATS.forEach(c => c.items.forEach(it => {
-    const brands = c.brands.slice().sort(()=>rnd()-.5).slice(0, ri(2, Math.min(3,c.brands.length)));
+  CATS.forEach(c => c.items.forEach(([it,unite]) => {
+    const brands = c.brands.slice().sort(()=>rnd()-.5).slice(0, ri(1, Math.min(2,c.brands.length)));
     brands.forEach(b => {
-      const pa = round(c.p[0] + Math.pow(rnd(),1.6)*(c.p[1]-c.p[0]), 10);
-      const marge = 1.38 + rnd()*.3;
-      const min = c.ser ? ri(10,24) : ri(60,180);
+      const pa = round(c.p[0] + Math.pow(rnd(),c.ser?2.2:1.4)*(c.p[1]-c.p[0]), 10);
+      const marge = c.cat==='Médicaments génériques' ? 1.12 + rnd()*.08 : 1.28 + rnd()*.3;
+      const min = ri(c.min[0], c.min[1]);
       const stocks = {}; const prof = rnd();
       depots.forEach((d,i) => {
         const w = [.4,.25,.2,.15][i];
@@ -135,46 +141,68 @@ function seedData(){
         stocks[d.id] = chance(.07) && prof >= .06 ? 0 : Math.round(tot*w*(0.7+rnd()*.6));
       });
       articles.push({
-        id: uid('A'), ref: `${c.cat.slice(0,3).toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g,'')}-${refN++}`,
-        designation: `${it} ${b}`, categorie: c.cat, marque: b, unite: 'Unité',
+        id: uid('A'), ref: `${c.code}-${refN++}`,
+        designation: `${it} · ${b}`, categorie: c.cat, marque: b, unite,
         prixAchat: pa, prixVente: round(pa*marge,10), cmup: round(pa*(0.97+rnd()*.06),1),
-        methode: chance(.8)?'CMUP':'FIFO', stockMin: min, stockMax: min*4, serialise: c.ser,
-        garantieMois: pick(c.g), stocks, emplacement: `${pick(['A','B','C','D'])}${ri(1,12)}-${ri(1,6)}`, actif:true
+        methode: c.per ? 'FEFO' : (chance(.8)?'CMUP':'FIFO'), stockMin: min, stockMax: min*4, serialise: c.ser, perissable: c.per,
+        garantieMois: pick(c.g), stocks, emplacement: `${pick(['A','B','C','D'])}${ri(1,12)}-${ri(1,6)}`, actif:true,
+        cond: {buy:c.buy, big:c.big, small:c.small}
       });
     });
   }));
+  // lots et dates de péremption (produits périssables)
+  const lots = [];
+  articles.filter(a=>a.perissable).forEach(a => depots.forEach(d => {
+    let q = a.stocks[d.id]; if (!q) return;
+    const n = q < 20 ? 1 : ri(1,3);
+    for (let k=0;k<n;k++){
+      const qq = k===n-1 ? q : Math.round(q*(0.3+rnd()*.4)); q -= qq; if (qq<=0) continue;
+      const r = rnd(); const per = r<.03 ? dayAgo(ri(1,60)) : r<.11 ? addDays(TODAY,ri(5,90)) : r<.2 ? addDays(TODAY,ri(91,180)) : addDays(TODAY,ri(181,900));
+      lots.push({id:uid('L'),lot:`${a.marque.replace(/[^A-Za-z]/g,'').slice(0,2).toUpperCase()}${per.slice(2,4)}${ri(1000,9999)}`,articleId:a.id,depotId:d.id,qte:qq,fabrication:addMonths(per,-pick([24,36])),peremption:per});
+    }
+  }));
 
   /* ---------- Clients ---------- */
-  const PREF = ['SARL','EURL','Garage','Ets','SNC','Auto','Atelier','SPA'];
-  const CORE = ['El Nour','Atlas','Sahel','Djurdjura','Tassili','Hoggar','El Bahia','Numidia','Cirta','Saoura','Ennasr','El Feth','Amal','Rimal','Zianides','Tafna','Medjerda','Chélif','Errahma','El Wiam','Ibn Badis','Essalam','Tadjmout','Seybouse','Mazafran','El Hidhab','Tikjda','El Kala','Belezma','Ahaggar'];
-  const SUFF = ['Auto','Diagnostic','Services','Motors','Mécanique','Électronique auto','Pièces','Car Center',''];
-  const TYPES_CL = ['Garage indépendant','Garage indépendant','Concessionnaire','Flotte d’entreprise','Revendeur pièces','Revendeur pièces','Particulier','Auto-école'];
+  const CORE = ['El Nour','Atlas','Sahel','Djurdjura','Tassili','Hoggar','El Bahia','Numidia','Cirta','Saoura','Ennasr','El Feth','Amal','Rimal','Zianides','Tafna','Medjerda','Chélif','Errahma','El Wiam','Ibn Sina','Essalam','Ibn Rochd','Seybouse','Mazafran','El Hidhab','El Chifa','El Kala','Belezma','Ahaggar','Pasteur','Avicenne'];
+  // type → [poids, gros volumes ?, catégories achetées, fabrique de nom]
+  const TYPES_CL = {
+    'Pharmacie d’officine':[30,false,['Médicaments génériques','Parapharmacie','Dispositifs médicaux','Hygiène & désinfection'],()=>chance(.5)?`Pharmacie ${pick(CORE)}`:`Pharmacie ${pick(PRENOMS_F.concat(PRENOMS_H))} ${pick(NOMS)}`],
+    'Laboratoire d’analyses':[20,false,['Réactifs de laboratoire','Consommables de laboratoire','Équipements de laboratoire','Verrerie de laboratoire','Hygiène & désinfection'],()=>chance(.5)?`Laboratoire d’analyses ${pick(CORE)}`:`Laboratoire Dr ${pick(NOMS)}`],
+    'Clinique privée':[10,false,['Médicaments génériques','Consommables de laboratoire','Dispositifs médicaux','Hygiène & désinfection','Réactifs de laboratoire','Équipements de laboratoire'],()=>`Clinique ${pick(CORE)}`],
+    'Hôpital public (EPH / CHU)':[8,true,['Médicaments génériques','Réactifs de laboratoire','Consommables de laboratoire','Dispositifs médicaux','Hygiène & désinfection','Équipements de laboratoire'],w=>`${chance(.4)?'CHU':'EPH'} ${pick(CORE)} ${w}`],
+    'Grossiste répartiteur':[10,true,['Médicaments génériques','Parapharmacie','Hygiène & désinfection','Dispositifs médicaux','Consommables de laboratoire'],()=>`${pick(['SARL','EURL','SPA'])} ${pick(CORE)} ${pick(['Pharm Distribution','Répartition','Médical Distribution'])}`],
+    'Revendeur matériel médical':[10,true,['Dispositifs médicaux','Équipements de laboratoire','Consommables de laboratoire','Verrerie de laboratoire'],()=>`${pick(['SARL','EURL'])} ${pick(CORE)} ${pick(['Médical','Lab Équipements','Biomédical'])}`],
+    'Recherche & université':[5,false,['Réactifs de laboratoire','Verrerie de laboratoire','Équipements de laboratoire','Consommables de laboratoire'],w=>chance(.5)?`Faculté de médecine de ${w}`:`Centre de recherche ${pick(CORE)}`],
+    'Industrie pharmaceutique':[4,true,['Consommables de laboratoire','Verrerie de laboratoire','Équipements de laboratoire','Hygiène & désinfection','Réactifs de laboratoire'],()=>`SPA ${pick(CORE)} Pharma Industrie`],
+  };
+  const TYPE_KEYS = Object.keys(TYPES_CL);
   const clients = []; const usedNames = new Set();
-  for (let i=0;i<96;i++){
-    let name; do { name = `${pick(PREF)} ${pick(CORE)} ${pick(SUFF)}`.trim(); } while(usedNames.has(name)); usedNames.add(name);
-    const type = pick(TYPES_CL);
+  for (let i=0;i<110;i++){
+    const type = pickW(TYPE_KEYS, TYPE_KEYS.map(k=>TYPES_CL[k][0]));
     const w = pickW(WILAYAS, WEIGHT_W);
+    let name, guard = 0; do { name = TYPES_CL[type][3](w); } while(usedNames.has(name) && guard++ < 20); if (usedNames.has(name)) name += ' ' + (i+1); usedNames.add(name);
     const comm = commerciaux.find(c=>c.wilaya===w) || pick(commerciaux);
-    const assujetti = type==='Particulier' ? false : chance(.72);
-    if (type==='Particulier') name = `${pick(PRENOMS_H)} ${pick(NOMS)}`;
+    const big = TYPES_CL[type][1]; const pub = type==='Hôpital public (EPH / CHU)' || type==='Recherche & université';
+    const assujetti = pub ? chance(.2) : chance(.78);
     clients.push({
-      id: uid('CL'), code: 'CLI-' + String(i+1).padStart(4,'0'), raison: name, type, wilaya: w,
-      commune: w, commercialId: comm.id, tel: phone(), email: name.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z]+/g,'.').replace(/^\.|\.$/g,'') + '@' + pick(['gmail.com','yahoo.fr','outlook.com','djaweb.dz']),
-      nif: assujetti?nif():'', rc: assujetti?`${ri(10,48)}/00-${ri(1000000,9999999)}B${ri(10,24)}`:'', ai: assujetti?String(ri(10000000000,99999999999)):'',
-      assujettiTVA: assujetti, plafond: round(type==='Concessionnaire'||type==='Flotte d’entreprise'? ri(2000000,6000000) : ri(300000,2500000), 50000),
-      delai: pick([0,15,30,30,45,60]), dateCreation: dayAgo(ri(60,2200)), bloque:false
+      id: uid('CL'), code: 'CLI-' + String(i+1).padStart(4,'0'), raison: name, type, wilaya: w, gros: big,
+      commune: w, commercialId: comm.id, tel: phone(), email: name.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z]+/g,'.').replace(/^\.|\.$/g,'').slice(0,28) + '@' + pick(['gmail.com','yahoo.fr','outlook.com','djaweb.dz']),
+      nif: nif(), rc: pub?'':`${ri(10,48)}/00-${ri(1000000,9999999)}B${ri(10,24)}`, ai: String(ri(10000000000,99999999999)),
+      assujettiTVA: assujetti, plafond: round(big ? ri(8000000,30000000) : ri(400000,3000000), 50000),
+      delai: pub ? pick([60,90]) : big ? pick([30,45,60]) : pick([0,15,30,30,45]), dateCreation: dayAgo(ri(60,2200)), bloque:false
     });
   }
+  const catsFor = cl => TYPES_CL[cl.type][2];
 
   /* ---------- Fournisseurs ---------- */
   const FRS = [
-    ['Shenzhen Lianke Electronics Co.','Chine','Shenzhen','USD'],['Guangzhou OBD Tools Ltd','Chine','Guangzhou','USD'],['Ningbo Autoparts Trading','Chine','Ningbo','USD'],
-    ['Istanbul Oto Elektronik A.Ş.','Turquie','Istanbul','EUR'],['Bursa Sensör Sanayi','Turquie','Bursa','EUR'],['Stuttgart Diagnose GmbH','Allemagne','Stuttgart','EUR'],
-    ['Hamburg Fahrzeugtechnik KG','Allemagne','Hambourg','EUR'],['Lyon Auto Composants SAS','France','Lyon','EUR'],['Milano Elettronica Srl','Italie','Milan','EUR'],
-    ['Valencia Recambios SL','Espagne','Valence','EUR'],['SARL Import Tech Alger','Algérie','Alger','DZD'],['EURL Médi Pièces','Algérie','Oran','DZD'],
-    ['SARL Sétif Câblage','Algérie','Sétif','DZD'],['Ets Benali Outillage','Algérie','Blida','DZD'],['SPA Electro Industries','Algérie','Tizi Ouzou','DZD'],
-    ['Dubai Auto Parts FZE','Émirats arabes unis','Dubaï','USD'],['Tunis Diag Distribution','Tunisie','Tunis','EUR'],['SARL Consommables Atelier','Algérie','Alger','DZD'],
-    ['Taipei Precision Instruments','Taïwan','Taipei','USD'],['EURL Hoggar Logistique','Algérie','Ouargla','DZD'],['Seoul Auto Sensor Co.','Corée du Sud','Séoul','USD'],['SARL Constantine Batteries','Algérie','Constantine','DZD']
+    ['Hangzhou LabWare Co.','Chine','Hangzhou','USD'],['Shenzhen MedDevice Ltd','Chine','Shenzhen','USD'],['Mumbai Generics Pvt Ltd','Inde','Mumbai','USD'],
+    ['Hyderabad API Pharma','Inde','Hyderabad','USD'],['Istanbul Medikal A.Ş.','Turquie','Istanbul','EUR'],['Ankara Laboratuvar Sanayi','Turquie','Ankara','EUR'],
+    ['Frankfurt Labortechnik GmbH','Allemagne','Francfort','EUR'],['Hamburg Diagnostika KG','Allemagne','Hambourg','EUR'],['Lyon BioDiagnostic SAS','France','Lyon','EUR'],
+    ['Milano Reagenti Srl','Italie','Milan','EUR'],['Barcelona Vidrio Lab SL','Espagne','Barcelone','EUR'],['SPA Atlas Pharma Industrie','Algérie','Alger','DZD'],
+    ['SARL Cirta Génériques','Algérie','Constantine','DZD'],['EURL Médi Consommables','Algérie','Oran','DZD'],['SARL Sétif Hygiène Pro','Algérie','Sétif','DZD'],
+    ['Ets Benali Verrerie','Algérie','Blida','DZD'],['SPA Tassili Parapharm','Algérie','Tizi Ouzou','DZD'],['Dubai Healthcare Trading FZE','Émirats arabes unis','Dubaï','USD'],
+    ['Tunis Lab Distribution','Tunisie','Tunis','EUR'],['SARL Hoggar Médical','Algérie','Ouargla','DZD'],['Seoul BioTech Co.','Corée du Sud','Séoul','USD'],['SARL El Bahia Pharma','Algérie','Oran','DZD']
   ];
   const fournisseurs = FRS.map((f,i) => ({
     id: uid('F'), code: 'FRS-' + String(i+1).padStart(3,'0'), raison: f[0], pays: f[1], ville: f[2], devise: f[3],
@@ -191,10 +219,11 @@ function seedData(){
   for (let i=0;i<820;i++){
     const age = Math.floor(Math.pow(rnd(),1.25)*365);
     const date = dayAgo(age);
-    const client = pick(clients);
+    const client = pickW(clients, clients.map(c=>c.gros?.6:1));
     const depotId = client.wilaya==='Oran'||client.wilaya==='Tlemcen'||client.wilaya==='Mostaganem'||client.wilaya==='Chlef' ? 'DEP2' : client.wilaya==='Constantine'||client.wilaya==='Annaba'||client.wilaya==='Batna'||client.wilaya==='Biskra' ? 'DEP3' : client.wilaya==='Sétif'||client.wilaya==='Bordj Bou Arréridj'||client.wilaya==='Béjaïa' ? 'DEP4' : 'DEP1';
-    const nl = ri(1,4); const lignes = [];
-    for (let k=0;k<nl;k++){ const a = pick(articles); if (lignes.find(l=>l.articleId===a.id)) continue; const q = a.serialise ? (chance(.75)?1:2) : ri(2,25); const rem = chance(.25)?pick([3,5,8,10]):0; lignes.push({articleId:a.id,qte:q,pu:a.prixVente,remise:rem}); }
+    const nl = ri(1, client.gros ? 6 : 4); const lignes = []; const pool = articles.filter(a=>catsFor(client).includes(a.categorie));
+    for (let k=0;k<nl;k++){ const a = pick(pool); if (lignes.find(l=>l.articleId===a.id)) continue; const rg = client.gros ? a.cond.big : a.cond.small; const q = ri(rg[0], rg[1]); const rem = client.gros ? pick([0,3,5,5,8,10,12]) : (chance(.2)?pick([2,3,5]):0); lignes.push({articleId:a.id,qte:q,pu:a.prixVente,remise:rem}); }
+    if (!lignes.length) continue;
     const ht = lignes.reduce((s,l)=>s+l.qte*l.pu*(1-l.remise/100),0);
     const circuit = client.assujettiTVA ? 'A' : 'B';
     const tva = circuit==='A' ? ht*0.19 : 0;
@@ -237,7 +266,7 @@ function seedData(){
         for (let k=0;k<parts;k++){
           const m = k===parts-1 ? remaining : Math.round(remaining/2); remaining -= m;
           const rd = addDays(fd, Math.min(facAge, ri(0, Math.max(1, client.delai+20))));
-          const mode = client.type==='Particulier' ? pick(['Espèces','Espèces','Virement']) : pick(['Chèque','Chèque','Virement','Virement','Espèces','Traite']);
+          const mode = client.type==='Hôpital public (EPH / CHU)'||client.type==='Recherche & université' ? 'Virement' : pick(['Chèque','Chèque','Virement','Virement','Espèces','Traite']);
           reglements.push({id:uid('R'),num:`RG${yr}-${String(regN++).padStart(5,'0')}`,date:rd>TODAY?TODAY:rd,factureId:fac.id,clientId:client.id,montant:m,mode,reference:mode==='Chèque'?String(ri(1000000,9999999)):mode==='Virement'?`VIR-${ri(100000,999999)}`:'' ,banque: mode==='Chèque'?pick(['BNA','CPA','BEA','BADR','BDL','CNEP','AGB','Société Générale Algérie']):''});
           fac.regle += m;
         }
@@ -250,15 +279,15 @@ function seedData(){
     const a = articles.find(x=>x.id===l.articleId); if (!a.serialise) return;
     for (let k=0;k<l.qte;k++){
       const dv = c.dateLivraison || c.date; const fin = addMonths(dv, a.garantieMois);
-      pieces.push({id:uid('P'),serial:`${a.marque.slice(0,2).toUpperCase()}${yr}${String(serN++)}`,articleId:a.id,dateEntree:addDays(c.date,-ri(10,120)),depotId:c.depotId,
+      pieces.push({id:uid('P'),serial:`${a.marque.replace(/[^A-Za-z]/g,'').slice(0,2).toUpperCase()}${yr}${String(serN++)}`,articleId:a.id,dateEntree:addDays(c.date,-ri(10,120)),depotId:c.depotId,
         clientId:c.clientId,commandeId:c.id,dateVente:dv,garantieMois:a.garantieMois,finGarantie:fin,statut: fin < TODAY ? 'Garantie expirée' : 'Sous garantie'});
     }
   }));
-  articles.filter(a=>a.serialise).forEach(a => { const n = Math.min(6, Object.values(a.stocks).reduce((s,v)=>s+v,0)); for (let k=0;k<n;k++){ const dep = pickW(depots.map(d=>d.id),depW); pieces.push({id:uid('P'),serial:`${a.marque.slice(0,2).toUpperCase()}${yr}${String(serN++)}`,articleId:a.id,dateEntree:dayAgo(ri(3,200)),depotId:dep,clientId:'',commandeId:'',dateVente:'',garantieMois:a.garantieMois,finGarantie:'',statut:'En stock'}); } });
+  articles.filter(a=>a.serialise).forEach(a => { const n = Math.min(6, Object.values(a.stocks).reduce((s,v)=>s+v,0)); for (let k=0;k<n;k++){ const dep = pickW(depots.map(d=>d.id),depW); pieces.push({id:uid('P'),serial:`${a.marque.replace(/[^A-Za-z]/g,'').slice(0,2).toUpperCase()}${yr}${String(serN++)}`,articleId:a.id,dateEntree:dayAgo(ri(3,200)),depotId:dep,clientId:'',commandeId:'',dateVente:'',garantieMois:a.garantieMois,finGarantie:'',statut:'En stock'}); } });
 
   /* ---------- Tickets SAV ---------- */
   const tickets = []; let tkN = 1;
-  const CATS_T = ['Panne totale','Défaut de fabrication','Erreur logicielle / mise à jour','Dommage transport','Problème d’installation','Communication OBD impossible'];
+  const CATS_T = ['Panne totale','Défaut de calibration','Erreur logicielle / firmware','Dommage transport','Installation et mise en service','Maintenance préventive'];
   const sold = pieces.filter(p=>p.dateVente);
   for (let i=0;i<170;i++){
     const expired = sold.filter(x=>x.finGarantie < addDays(TODAY,-3));
@@ -271,12 +300,12 @@ function seedData(){
     const tech = pick(techs); const cl = clients.find(c=>c.id===p.clientId);
     const res = ['Résolu','Clôturé'].includes(statut) ? addDays(date, Math.min(age, ri(1,14))) : '';
     const hist = [{date, auteur:'Accueil SAV', msg:`Ticket ouvert. Garantie ${eligible?'valide jusqu’au '+fmtDateRaw(p.finGarantie):'expirée depuis le '+fmtDateRaw(p.finGarantie)}.`}];
-    if (statut!=='Ouvert') hist.push({date:addDays(date,1>age?0:1),auteur:`${tech.prenom} ${tech.nom}`,msg:pick(['Pièce reçue à l’atelier, diagnostic en cours.','Test sur banc effectué, défaut confirmé.','Mise à jour du firmware lancée.','Contrôle visuel : traces d’humidité sur la carte.'])});
-    if (res) hist.push({date:res,auteur:`${tech.prenom} ${tech.nom}`,msg:pick(eligible?['Remplacement sous garantie effectué.','Réparation terminée, pièce testée OK.','Échange standard effectué.']:['Devis de réparation accepté et réparation effectuée.','Réparation hors garantie facturée.','Client informé : pièce non réparable.'])});
-    if (statut==='Clôturé') hist.push({date:addDays(res,Math.min(2,daysBetween(res,TODAY))),auteur:'Accueil SAV',msg:'Pièce restituée au client, ticket clôturé.'});
+    if (statut!=='Ouvert') hist.push({date:addDays(date,1>age?0:1),auteur:`${tech.prenom} ${tech.nom}`,msg:pick(['Équipement reçu au service technique, diagnostic en cours.','Test de calibration effectué, dérive confirmée.','Mise à jour du firmware lancée.','Contrôle visuel : carte d’alimentation endommagée.'])});
+    if (res) hist.push({date:res,auteur:`${tech.prenom} ${tech.nom}`,msg:pick(eligible?['Remplacement sous garantie effectué.','Réparation terminée, pièce testée OK.','Échange standard de l’équipement effectué.']:['Devis de réparation accepté et réparation effectuée.','Réparation hors garantie facturée.','Client informé : équipement non réparable.'])});
+    if (statut==='Clôturé') hist.push({date:addDays(res,Math.min(2,daysBetween(res,TODAY))),auteur:'Accueil SAV',msg:'Équipement restitué au client, ticket clôturé.'});
     tickets.push({id:uid('T'),num:`SAV${yr}-${String(tkN++).padStart(4,'0')}`,date,pieceId:p.id,clientId:p.clientId,commandeId:p.commandeId,commercialId:cl?cl.commercialId:'',
       categorie:pick(CATS_T),priorite:pick(['Basse','Normale','Normale','Normale','Haute','Haute','Critique']),statut,assigneId:tech.id,eligible,dateResolution:res,
-      description: pick(['Le client signale que l’appareil ne s’allume plus.','Erreur de communication avec le véhicule après 2 semaines d’utilisation.','Écran figé au démarrage.','Le calculateur ne répond plus après installation.','Valeurs incohérentes sur le capteur.','Le boîtier chauffe anormalement.']),historique:hist});
+      description: pick(['L’appareil ne s’allume plus.','Résultats incohérents après calibration.','Écran figé au démarrage.','Bruit anormal du rotor pendant la centrifugation.','Alarme de température pendant l’incubation.','La lampe du spectrophotomètre ne s’allume plus.']),historique:hist});
     if (['Résolu','Clôturé'].includes(statut) && eligible && chance(.45)) p.statut = 'Retour / Échange';
   }
 
@@ -285,8 +314,8 @@ function seedData(){
   const BC_ST = ['Créée','Validée','Préparée','Expédiée','Livrée'];
   for (let i=0;i<150;i++){
     const age = Math.floor(Math.pow(rnd(),1.1)*365); const date = dayAgo(age); const f = pick(fournisseurs);
-    const nl = ri(1,5); const lignes = [];
-    for (let k=0;k<nl;k++){ const a = pick(articles); if (lignes.find(l=>l.articleId===a.id)) continue; lignes.push({articleId:a.id,qte:a.serialise?ri(2,6):ri(8,45),pu:a.prixAchat,qteRecue:0}); }
+    const nl = ri(1,3); const lignes = [];
+    for (let k=0;k<nl;k++){ const a = pick(articles); if (lignes.find(l=>l.articleId===a.id)) continue; lignes.push({articleId:a.id,qte:ri(a.cond.buy[0],Math.round(a.cond.buy[1]*.95)),pu:a.prixAchat,qteRecue:0}); }
     const ht = lignes.reduce((s,l)=>s+l.qte*l.pu,0);
     const local = f.pays==='Algérie';
     let st = age>60 ? 'Livrée' : age>30 ? pick(['Livrée','Livrée','Expédiée']) : age>12 ? pick(['Expédiée','Préparée','Livrée','Validée']) : pick(['Créée','Validée','Préparée']);
@@ -303,8 +332,8 @@ function seedData(){
     achats.push(bc);
     if (st==='Livrée') lignes.forEach(l => mouvements.push({id:uid('M'),date:dateLiv,type:'Entrée',articleId:l.articleId,depotId,depotDestId:'',qte:l.qteRecue,coutUnitaire:l.pu,reference:bc.num,motif:'Réception fournisseur',utilisateur:'Magasin'}));
   }
-  for (let i=0;i<70;i++){ const a = pick(articles); const from = pick(depots), to = pick(depots.filter(d=>d!==from)); mouvements.push({id:uid('M'),date:dayAgo(ri(0,300)),type:'Transfert',articleId:a.id,depotId:from.id,depotDestId:to.id,qte:a.serialise?ri(1,5):ri(5,40),coutUnitaire:a.cmup,reference:`TR-${ri(1000,9999)}`,motif:'Rééquilibrage inter-dépôts',utilisateur:'Logistique'}); }
-  for (let i=0;i<45;i++){ const a = pick(articles); const neg = chance(.65); mouvements.push({id:uid('M'),date:dayAgo(ri(0,330)),type:'Ajustement',articleId:a.id,depotId:pick(depots).id,depotDestId:'',qte:(neg?-1:1)*ri(1,a.serialise?2:8),coutUnitaire:a.cmup,reference:`INV-${ri(100,999)}`,motif:neg?pick(['Casse','Écart inventaire','Pièce défectueuse']):'Écart inventaire positif',utilisateur:'Magasin'}); }
+  for (let i=0;i<70;i++){ const a = pick(articles); const from = pick(depots), to = pick(depots.filter(d=>d!==from)); mouvements.push({id:uid('M'),date:dayAgo(ri(0,300)),type:'Transfert',articleId:a.id,depotId:from.id,depotDestId:to.id,qte:ri(Math.max(1,a.cond.small[0]),a.cond.small[1]*2),coutUnitaire:a.cmup,reference:`TR-${ri(1000,9999)}`,motif:'Rééquilibrage inter-dépôts',utilisateur:'Logistique'}); }
+  for (let i=0;i<45;i++){ const a = pick(articles); const neg = chance(.65); mouvements.push({id:uid('M'),date:dayAgo(ri(0,330)),type:'Ajustement',articleId:a.id,depotId:pick(depots).id,depotDestId:'',qte:(neg?-1:1)*ri(1,Math.max(2,Math.round(a.cond.small[1]/4))),coutUnitaire:a.cmup,reference:`INV-${ri(100,999)}`,motif:neg?pick(['Casse','Écart inventaire','Produit périmé détruit']):'Écart inventaire positif',utilisateur:'Magasin'}); }
   mouvements.sort((a,b)=>b.date.localeCompare(a.date));
 
   const inventaires = [];
@@ -315,11 +344,11 @@ function seedData(){
 
   /* ---------- Trésorerie ---------- */
   const comptes = [
-    {id:'BQ1',libelle:'BNA — Agence Didouche Mourad',type:'Banque',banque:'BNA',rib:'001 00601 0300000123 45',soldeInitial:30000000,seuil:5000000,compteCompta:'512100'},
-    {id:'BQ2',libelle:'CPA — Agence Oran Front de mer',type:'Banque',banque:'CPA',rib:'004 00212 4010000678 12',soldeInitial:11000000,seuil:2000000,compteCompta:'512200'},
-    {id:'BQ3',libelle:'BEA — Agence Sétif centre',type:'Banque',banque:'BEA',rib:'002 00045 1100004567 89',soldeInitial:6500000,seuil:1000000,compteCompta:'512300'},
-    {id:'BQ4',libelle:'Algérie Poste — CCP',type:'CCP',banque:'Algérie Poste',rib:'007 99999 0001234567 33',soldeInitial:1400000,seuil:200000,compteCompta:'517000'},
-    {id:'CA1',libelle:'Caisse principale Alger',type:'Caisse',banque:'—',rib:'—',soldeInitial:600000,seuil:100000,compteCompta:'530000'},
+    {id:'BQ1',libelle:'BNA — Agence Didouche Mourad',type:'Banque',banque:'BNA',rib:'001 00601 0300000123 45',soldeInitial:45000000,seuil:15000000,compteCompta:'512100'},
+    {id:'BQ2',libelle:'CPA — Agence Oran Front de mer',type:'Banque',banque:'CPA',rib:'004 00212 4010000678 12',soldeInitial:18000000,seuil:6000000,compteCompta:'512200'},
+    {id:'BQ3',libelle:'BEA — Agence Sétif centre',type:'Banque',banque:'BEA',rib:'002 00045 1100004567 89',soldeInitial:9000000,seuil:3000000,compteCompta:'512300'},
+    {id:'BQ4',libelle:'Algérie Poste — CCP',type:'CCP',banque:'Algérie Poste',rib:'007 99999 0001234567 33',soldeInitial:3000000,seuil:500000,compteCompta:'517000'},
+    {id:'CA1',libelle:'Caisse principale Alger',type:'Caisse',banque:'—',rib:'—',soldeInitial:800000,seuil:150000,compteCompta:'530000'},
   ];
   const tresorerie = [];
   const cheques = []; let chN=1;
@@ -337,7 +366,7 @@ function seedData(){
   });
   achats.filter(b=>b.paye>0).forEach(b => {
     const f = fournisseurs.find(x=>x.id===b.fournisseurId); const d = b.echeance < TODAY ? b.echeance : addDays(b.dateLivraison||b.date, ri(0,5)); const dd = d>TODAY?TODAY:d;
-    const cpt = pickW(['BQ1','BQ2','BQ3'],[65,20,15]);
+    const cpt = pickW(['BQ1','BQ2','BQ3'],[72,24,4]);
     if (f.pays==='Algérie' && chance(.5)) {
       const age = daysBetween(dd, TODAY);
       cheques.push({id:uid('CH'),num:String(ri(1000000,9999999)),sens:'Émis',tiers:f.raison,tiersId:f.id,banque:comptes.find(c=>c.id===cpt).banque,montant:b.paye,dateEmission:dd,dateEcheance:addDays(dd,ri(0,20)),statut: age>15?'Encaissé':pick(['Émis','Émis','Encaissé']),compteId:cpt,reglementId:b.id,dateRemise:'',motifRejet:''});
@@ -363,7 +392,7 @@ function seedData(){
     const dca = `${mo}-05`; if (dca<=TODAY){ tresorerie.push({id:uid('TR'),date:dca,compteId:'CA1',sens:'Encaissement',categorie:'Virement interne',montant:250000,libelle:'Alimentation caisse depuis BNA',reference:'',rapproche:true}); tresorerie.push({id:uid('TR'),date:dca,compteId:'BQ1',sens:'Décaissement',categorie:'Virement interne',montant:250000,libelle:'Alimentation caisse',reference:'',rapproche:true}); }
   });
   // versements d’espèces en banque (fin de mois)
-  months.forEach(mo => { const d = `${mo}-28`; if (d > TODAY) return; const cash = 600000 + sum0(tresorerie.filter(t=>t.compteId==='CA1'&&t.date<=d), t=>t.sens==='Encaissement'?t.montant:-t.montant); if (cash > 300000) { const m = Math.round((cash-450000)/1000)*1000; tresorerie.push({id:uid('TR'),date:d,compteId:'CA1',sens:'Décaissement',categorie:'Virement interne',montant:m,libelle:`Versement espèces ${mo} à la BNA`,reference:'',rapproche:true}); tresorerie.push({id:uid('TR'),date:d,compteId:'BQ1',sens:'Encaissement',categorie:'Virement interne',montant:m,libelle:`Versement espèces ${mo}`,reference:'',rapproche:daysBetween(d,TODAY)>12}); } });
+  months.forEach(mo => { const d = `${mo}-28`; if (d > TODAY) return; const cash = 800000 + sum0(tresorerie.filter(t=>t.compteId==='CA1'&&t.date<=d), t=>t.sens==='Encaissement'?t.montant:-t.montant); if (cash > 300000) { const m = Math.round((cash-450000)/1000)*1000; tresorerie.push({id:uid('TR'),date:d,compteId:'CA1',sens:'Décaissement',categorie:'Virement interne',montant:m,libelle:`Versement espèces ${mo} à la BNA`,reference:'',rapproche:true}); tresorerie.push({id:uid('TR'),date:d,compteId:'BQ1',sens:'Encaissement',categorie:'Virement interne',montant:m,libelle:`Versement espèces ${mo}`,reference:'',rapproche:daysBetween(d,TODAY)>12}); } });
   tresorerie.sort((a,b)=>b.date.localeCompare(a.date));
 
   /* ---------- Comptabilité (SCF) ---------- */
@@ -423,6 +452,6 @@ function seedData(){
     migrationRuns.push({id:'MR'+i,date:dayAgo(d),type,lignesLues:tot,inserees:full?tot-ri(800,3000):ri(900,tot),misesAJour:full?0:ri(200,900),ignorees:full?ri(300,900):ri(20,140),anomalies:full?ri(400,900):ri(3,40),duree:full?`${ri(38,64)} min`:`${ri(40,180)} s`,statut:i<2?'Annulée (test)':'Terminée',par:`${rdsi.prenom} ${rdsi.nom}`});
   });
 
-  return { meta:{created:TODAY, version:1}, depots, employes, conges, variables, articles, clients, fournisseurs, commandes, factures, reglements, relances, pieces, tickets, achats, mouvements, inventaires, comptes, tresorerie, cheques, planComptable, ecritures, clotures, migrationTables, migrationRuns };
+  return { meta:{created:TODAY, version:2}, lots, depots, employes, conges, variables, articles, clients, fournisseurs, commandes, factures, reglements, relances, pieces, tickets, achats, mouvements, inventaires, comptes, tresorerie, cheques, planComptable, ecritures, clotures, migrationTables, migrationRuns };
 }
 function fmtDateRaw(s){ if(!s) return ''; const [y,m,d]=s.split('-'); return `${d}/${m}/${y}`; }

@@ -9,6 +9,14 @@ const compteSolde = (c, upTo) => c.soldeInitial + sum(D.tresorerie.filter(t=>t.c
 const tresoDispo = () => sum(D.comptes, c=>compteSolde(c));
 const ageGaranti = p => p.finGarantie ? daysBetween(TODAY, p.finGarantie) : null;
 const achatReste = b => Math.max(0, b.ttc - b.paye);
+/* ---------- lots & péremption (FEFO) ---------- */
+const lotStatut = l => l.peremption < TODAY ? 'Périmé' : l.peremption <= addDays(TODAY,90) ? 'Expire < 3 mois' : l.peremption <= addDays(TODAY,180) ? 'Expire < 6 mois' : 'Valide';
+const lotsOf = (aid, did) => (D.lots||[]).filter(l => l.articleId===aid && l.qte>0 && (!did || l.depotId===did));
+const nextPeremption = a => { const l = lotsOf(a.id).filter(x=>x.peremption>=TODAY).sort((x,y)=>x.peremption.localeCompare(y.peremption))[0]; return l ? l.peremption : ''; };
+function consumeLots(aid, did, q){ // sortie : on prélève d’abord les lots valides qui expirent le plus tôt
+  lotsOf(aid, did).filter(l=>l.peremption>=TODAY).sort((x,y)=>x.peremption.localeCompare(y.peremption)).forEach(l => { const t = Math.min(l.qte, q); l.qte -= t; q -= t; });
+}
+function addLot(a, did, q){ if (!a.perissable || q<=0) return; D.lots ||= []; const per = addMonths(TODAY, 24); D.lots.unshift({id:newId('L'),lot:`${a.marque.replace(/[^A-Za-z]/g,'').slice(0,2).toUpperCase()}${per.slice(2,4)}${Math.floor(Math.random()*9000+1000)}`,articleId:a.id,depotId:did,qte:q,fabrication:TODAY,peremption:per}); }
 
 /* ---------- profils & accès ---------- */
 const PROFILES = {
@@ -16,7 +24,7 @@ const PROFILES = {
   comptable:{label:'Comptabilité & finance', mods:['dashboard','compta','tresorerie','creances','fournisseurs','migration','parametres']},
   commercial:{label:'Commercial (vue filtrée)', mods:['dashboard','ventes','creances','sav','stock'], scoped:true},
   magasin:{label:'Magasin & logistique', mods:['dashboard','stock','ventes','fournisseurs']},
-  sav:{label:'Atelier SAV', mods:['sav','stock','creances']},
+  sav:{label:'Service technique (SAV)', mods:['sav','stock','creances']},
   rh:{label:'Ressources humaines', mods:['rh','parametres']},
 };
 const canSee = m => { const p = PROFILES[UI.profile] || PROFILES.direction; return p.mods==='*' || p.mods.includes(m); };
@@ -38,7 +46,7 @@ const MODULES = [
   {id:'ventes', label:'Ventes & livraisons', icon:'truck', render:()=>renderVentes()},
   {id:'stock', label:'Stock', icon:'box', render:()=>renderStock()},
   {id:'fournisseurs', label:'Fournisseurs & achats', icon:'cart', render:()=>renderFournisseurs()},
-  {id:'sav', label:'SAV & pièces', icon:'wrench', render:()=>renderSav(), tag:'Add-on'},
+  {id:'sav', label:'SAV & équipements', icon:'wrench', render:()=>renderSav(), tag:'Add-on'},
   {sec:'Finance'},
   {id:'creances', label:'Clients & créances', icon:'users', render:()=>renderCreances()},
   {id:'tresorerie', label:'Trésorerie', icon:'wallet', render:()=>renderTresorerie()},
@@ -206,6 +214,8 @@ function renderDashboard(){
   if (lowC.length) al.push(['bad','DA',`${lowC.length} compte${lowC.length>1?'s':''} sous le seuil critique`, lowC.map(c=>c.libelle.split(' — ')[0]).join(', '), ()=>go('tresorerie','comptes')]);
   const lp = cmds.filter(c=>c.statut==='En livraison'&&['Reporté','Absent','Refusé'].includes(c.statutLivraison));
   if (lp.length) al.push(['warn','Lv',`${lp.length} livraison${lp.length>1?'s':''} en échec (reportée, absent, refusée)`, 'À replanifier', ()=>go('ventes','livraisons')]);
+  const lotsRisk = (D.lots||[]).filter(l=>l.qte>0 && (!f.depot||l.depotId===f.depot) && ['Périmé','Expire < 3 mois'].includes(lotStatut(l)));
+  if (lotsRisk.length && canSee('stock')) al.push(['bad','Lot',`${lotsRisk.length} lots périmés ou à moins de 3 mois de péremption`, `${da(sum(lotsRisk,l=>l.qte*art(l.articleId).cmup))} de stock concerné`, ()=>goFiltered('stock','lots','lots',{facets:{statut:['Périmé','Expire < 3 mois']}})]);
   const ecarts = D.achats.filter(b=>b.rapprochement.startsWith('Écart'));
   if (ecarts.length && canSee('fournisseurs')) al.push(['info','BC',`${ecarts.length} réception${ecarts.length>1?'s':''} fournisseur avec écart`, 'Rapprochement BC / BL / facture', ()=>goFiltered('fournisseurs','bc','achats',{facets:{rapprochement:['Écart quantité','Écart prix']}})]);
   v.querySelector('#alerts').innerHTML = al.map((a,i)=>`<div class="al" data-al="${i}" role="button" tabindex="0"><div class="ic ${a[0]}">${a[1]}</div><div style="min-width:0"><div>${esc(a[2])}</div><div class="m">${esc(a[3])}</div></div></div>`).join('') || '<div class="empty">Rien à signaler.</div>';
@@ -226,11 +236,13 @@ function renderVentes(){
 }
 function cmdTableCfg(){
   return {id:'commandes', noun:'les commandes', rows:S.commandes, onRow:openCommande, add:()=>newCommandeForm(), addLabel:'Nouvelle commande',
-    facets:['statut','circuit','depot'],
+    facets:['statut','segment','circuit'],
     columns:[
       {key:'num',label:'N° commande',strong:true,render:r=>`<span class="mono">${r.num}</span>`},
       {key:'date',label:'Date',type:'date'},
       {key:'client',label:'Client',get:r=>cli(r.clientId).raison},
+      {key:'segment',label:'Segment',type:'enum',get:r=>cli(r.clientId).gros?'Vente en gros':'Détail',render:r=>pill(cli(r.clientId).gros?'Vente en gros':'Détail',cli(r.clientId).gros?'acc':'plain')},
+      {key:'typeClient',label:'Type de client',type:'enum',pill:false,get:r=>cli(r.clientId).type,hidden:true},
       {key:'wilaya',label:'Wilaya',type:'enum',pill:false,get:r=>cli(r.clientId).wilaya,hidden:true},
       {key:'commercial',label:'Commercial',type:'enum',pill:false,get:r=>empName(r.commercialId)},
       {key:'depot',label:'Dépôt',type:'enum',pill:false,get:r=>dep(r.depotId).nom},
@@ -245,7 +257,7 @@ function cmdTableCfg(){
       {key:'dateLivraison',label:'Livrée le',type:'date',hidden:true},
     ],
     presets:[
-      {name:'Commandes > 500 000 DA',rules:[{key:'ttc',op:'gte',v:'500000',v2:''}]},
+      {name:'Ventes en gros > 2 M DA',rules:[{key:'segment',op:'in',v:'Vente en gros'},{key:'ttc',op:'gte',v:'2000000',v2:''}]},
       {name:'Livraisons en échec',match:'any',rules:[{key:'statutLivraison',op:'in',v:'Reporté'},{key:'statutLivraison',op:'in',v:'Absent'},{key:'statutLivraison',op:'in',v:'Refusé'}]},
       {name:'Ce mois-ci',rules:[{key:'date',op:'thismonth',v:'',v2:''}]},
       {name:'Circuit B, 90 derniers jours',rules:[{key:'circuit',op:'in',v:'B'},{key:'date',op:'last90',v:'',v2:''}]},
@@ -272,7 +284,7 @@ function advanceCommande(c, next){
   c.statut = next;
   if (next==='Expédiée') {
     if (!c.livreurId) c.livreurId = (D.employes.find(e=>e.poste==='Livreur'&&e.depotId===c.depotId) || D.employes.find(e=>e.poste==='Livreur')).id;
-    c.lignes.forEach(l => { const a = art(l.articleId); a.stocks[c.depotId] = Math.max(0,(a.stocks[c.depotId]||0)-l.qte); D.mouvements.unshift({id:newId('M'),date:TODAY,type:'Sortie',articleId:a.id,depotId:c.depotId,depotDestId:'',qte:l.qte,coutUnitaire:a.cmup,reference:c.num,motif:'Livraison client',utilisateur:PROFILES[UI.profile].label}); });
+    c.lignes.forEach(l => { const a = art(l.articleId); a.stocks[c.depotId] = Math.max(0,(a.stocks[c.depotId]||0)-l.qte); if (a.perissable) consumeLots(a.id, c.depotId, l.qte); D.mouvements.unshift({id:newId('M'),date:TODAY,type:'Sortie',articleId:a.id,depotId:c.depotId,depotDestId:'',qte:l.qte,coutUnitaire:a.cmup,reference:c.num,motif:'Livraison client',utilisateur:PROFILES[UI.profile].label}); });
     if (!D.factures.find(f=>f.commandeId===c.id)) { const cl = cli(c.clientId); const f = {id:newId('FA'),num:nextNum(D.factures,'num','FA'),commandeId:c.id,clientId:c.clientId,commercialId:c.commercialId,date:TODAY,echeance:addDays(TODAY,cl.delai),ht:c.montantHT,tva:c.tva,ttc:c.ttc,regle:0,circuit:c.circuit,echeances:[]}; D.factures.unshift(f);
       const l = [['411000',f.ttc,0],['700000',0,f.ht]]; if (f.tva) l.push(['445700',0,f.tva]); D.ecritures.unshift({id:newId('EC'),num:nextNum(D.ecritures,'num','VTE-'),date:TODAY,journal:'VTE',libelle:`Facture ${f.num} — ${cl.raison}`,circuit:f.circuit,lignes:l,origine:'Créances',reference:f.num,statut:'Brouillard'});
       toast(`Facture ${f.num} générée, écriture comptable passée au circuit ${f.circuit}`); }

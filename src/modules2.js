@@ -3,11 +3,13 @@ function renderStock(){
   const val = sum(D.articles, a=>qtyTot(a)*a.cmup);
   const rupt = D.articles.filter(a=>stockStatut(a)==='Rupture').length, alert = D.articles.filter(a=>stockStatut(a)==='Alerte').length;
   const mv30 = D.mouvements.filter(m=>m.date>=addDays(TODAY,-30));
-  page({mod:'stock', eyebrow:'Opérations', title:'Gestion de stock', sub:'Quatre dépôts, valorisation au CMUP ou en FIFO selon l’article, seuils d’alerte et inventaires.',
-    kpis:[{l:'Valeur du stock',v:kda(val),s:`${num(sum(D.articles,qtyTot))} unités · ${D.articles.length} articles`},{l:'Ruptures',v:rupt,s:'Stock à zéro',dot:'var(--bad)',go:'alertes'},{l:'Sous le seuil minimum',v:alert,s:'Réapprovisionnement conseillé',dot:'var(--warn)',go:'alertes'},{l:'Mouvements sur 30 jours',v:num(mv30.length),s:`${mv30.filter(m=>m.type==='Transfert').length} transferts inter-dépôts`,go:'mouvements'}],
+  const lotsR = (D.lots||[]).filter(l=>l.qte>0&&['Périmé','Expire < 3 mois'].includes(lotStatut(l)));
+  page({mod:'stock', eyebrow:'Opérations', title:'Gestion de stock', sub:'Quatre dépôts, médicaments et consommables suivis par lot et date de péremption (sortie FEFO), équipements valorisés au CMUP ou en FIFO, seuils d’alerte et inventaires.',
+    kpis:[{l:'Valeur du stock',v:kda(val),s:`${num(sum(D.articles,qtyTot))} unités · ${D.articles.length} articles`},{l:'Ruptures',v:rupt,s:'Stock à zéro',dot:'var(--bad)',go:'alertes'},{l:'Sous le seuil minimum',v:alert,s:'Réapprovisionnement conseillé',dot:'var(--warn)',go:'alertes'},{l:'Lots à surveiller',v:lotsR.length,s:`${lotsR.filter(l=>lotStatut(l)==='Périmé').length} périmés · ${lotsR.filter(l=>lotStatut(l)!=='Périmé').length} expirent sous 3 mois`,dot:'var(--bad)',go:'lots'}],
     actions:`<button class="btn" id="btnTr">${ic('truck')} Transfert inter-dépôts</button>`,
     tabs:[
       {id:'articles',label:'Articles',cnt:D.articles.length,render:el=>renderTable(el,articleCfg())},
+      {id:'lots',label:'Lots & péremption',cnt:(D.lots||[]).filter(l=>l.qte>0).length,render:el=>renderTable(el,lotCfg())},
       {id:'mouvements',label:'Mouvements',cnt:D.mouvements.length,render:el=>renderTable(el,mvtCfg())},
       {id:'alertes',label:'Alertes & réappro',cnt:rupt+alert,render:el=>renderTable(el,alertCfg())},
       {id:'valorisation',label:'Valorisation',render:renderValo},
@@ -22,7 +24,8 @@ function articleCfg(){
       {key:'ref',label:'Référence',render:r=>`<span class="mono">${r.ref}</span>`},
       {key:'designation',label:'Désignation',strong:true},
       {key:'categorie',label:'Catégorie',type:'enum',pill:false},
-      {key:'marque',label:'Marque',type:'enum',pill:false},
+      {key:'marque',label:'Marque',type:'enum',pill:false,hidden:true},
+      {key:'unite',label:'Unité',type:'enum',pill:false},
       {key:'qte',label:'Stock total',type:'num',get:qtyTot,sum:true},
       ...D.depots.map(d=>({key:'q_'+d.id,label:d.code,type:'num',get:r=>r.stocks[d.id]||0,hidden:d.id!=='DEP1'})),
       {key:'stockMin',label:'Seuil min.',type:'num'},
@@ -34,17 +37,19 @@ function articleCfg(){
       {key:'methode',label:'Valorisation',type:'enum',pill:false,hidden:true},
       {key:'serialise',label:'N° de série',type:'bool',hidden:true},
       {key:'garantieMois',label:'Garantie (mois)',type:'num',hidden:true},
+      {key:'peremption',label:'Péremption la plus proche',type:'date',get:nextPeremption,render:r=>{ const d = nextPeremption(r); if (!d) return '<span class="muted">—</span>'; const j = daysBetween(TODAY,d); return `<span style="color:${j<=90?'var(--bad)':j<=180?'var(--warn)':'var(--fg)'}">${fd(d)}</span>`; }},
       {key:'statut',label:'État',type:'enum',get:r=>stockStatut(r),facetOptions:['Rupture','Alerte','OK','Surstock']},
     ],
-    presets:[{name:'Ruptures et alertes',facets:{statut:['Rupture','Alerte']}},{name:'Valeur > 1 M DA',rules:[{key:'valeur',op:'gt',v:'1000000',v2:''}]},{name:'Articles sérialisés sous garantie ≥ 12 mois',rules:[{key:'serialise',op:'true'},{key:'garantieMois',op:'gte',v:'12',v2:''}]},{name:'Rupture au dépôt d’Oran',rules:[{key:'q_DEP2',op:'eq',v:'0',v2:''}]}]};
+    presets:[{name:'Ruptures et alertes',facets:{statut:['Rupture','Alerte']}},{name:'Valeur > 1 M DA',rules:[{key:'valeur',op:'gt',v:'1000000',v2:''}]},{name:'Péremption dans les 6 mois',rules:[{key:'peremption',op:'before',v:addDays(TODAY,181),v2:''},{key:'peremption',op:'nempty'}]},{name:'Articles sérialisés sous garantie ≥ 12 mois',rules:[{key:'serialise',op:'true'},{key:'garantieMois',op:'gte',v:'12',v2:''}]},{name:'Rupture au dépôt d’Oran',rules:[{key:'q_DEP2',op:'eq',v:'0',v2:''}]}]};
 }
 function openArticle(a){
   const mv = D.mouvements.filter(m=>m.articleId===a.id).slice(0,8);
   const ventes = D.commandes.filter(c=>c.statut!=='Annulée'&&c.date>=addDays(TODAY,-90)).reduce((s,c)=>s+sum(c.lignes.filter(l=>l.articleId===a.id),l=>l.qte),0);
   openDrawer({eyebrow:`Article · ${esc(a.categorie)}`, title:esc(a.designation),
     body: `<div style="display:flex;gap:8px;flex-wrap:wrap">${pill(stockStatut(a))} <span class="pill plain">${esc(a.methode)}</span> ${a.serialise?'<span class="pill info">Suivi par n° de série</span>':''}</div>`
-     + kv([['Référence',`<span class="mono">${esc(a.ref)}</span>`],['Marque',esc(a.marque)],['Emplacement',esc(a.emplacement)],['Prix d’achat',da(a.prixAchat)],['Coût unitaire ('+a.methode+')',da(a.cmup)],['Prix de vente HT',da(a.prixVente)],['Marge brute',Math.round((a.prixVente-a.cmup)/a.prixVente*100)+' %'],['Garantie',a.garantieMois?a.garantieMois+' mois':'Sans garantie'],['Seuils',`min. ${a.stockMin} · max. ${a.stockMax}`],['Vendus sur 90 jours',num(ventes)+' unités'],['Valeur en stock',`<b>${da(qtyTot(a)*a.cmup)}</b>`]])
+     + kv([['Référence',`<span class="mono">${esc(a.ref)}</span>`],['Marque / laboratoire',esc(a.marque)],['Unité de vente',esc(a.unite)],['Emplacement',esc(a.emplacement)],['Prix d’achat',da(a.prixAchat)],['Coût unitaire ('+a.methode+')',da(a.cmup)],['Prix de vente HT',da(a.prixVente)],['Marge brute',Math.round((a.prixVente-a.cmup)/a.prixVente*100)+' %'],['Garantie',a.garantieMois?a.garantieMois+' mois':'Sans garantie'],['Seuils',`min. ${a.stockMin} · max. ${a.stockMax}`],['Vendus sur 90 jours',num(ventes)+' unités'],['Valeur en stock',`<b>${da(qtyTot(a)*a.cmup)}</b>`]])
      + sec('Stock par dépôt', miniTable(['Dépôt','#Quantité','#Valeur','État'], D.depots.map(d=>[esc(d.nom), num(a.stocks[d.id]||0), da((a.stocks[d.id]||0)*a.cmup), pill(stockStatut(a,d.id))])))
+     + (a.perissable ? sec('Lots en stock (sortie FEFO)', miniTable(['Lot','Dépôt','#Qté','Péremption','État'], lotsOf(a.id).sort((x,y)=>x.peremption.localeCompare(y.peremption)).map(l=>[`<span class="mono">${esc(l.lot)}</span>`, esc(dep(l.depotId).code), num(l.qte), fd(l.peremption), pill(lotStatut(l))]))) : '')
      + sec('Derniers mouvements', miniTable(['Date','Type','Dépôt','#Qté','Réf.'], mv.map(m=>[fd(m.date), pill(m.type,'plain'), esc(dep(m.depotId).code)+(m.depotDestId?' → '+esc(dep(m.depotDestId).code):''), num(m.qte), `<span class="mono">${esc(m.reference)}</span>`]))),
     foot:`<button class="btn" data-edit style="margin-right:auto">${ic('edit')} Modifier</button><button class="btn" data-adj>Ajuster</button><button class="btn primary" data-tr>Transférer</button>`,
     onMount: d => { d.querySelector('[data-edit]').onclick = () => articleForm(a); d.querySelector('[data-adj]').onclick = () => mvtForm('Ajustement', a); d.querySelector('[data-tr]').onclick = () => mvtForm('Transfert', a); }});
@@ -53,12 +58,22 @@ function articleForm(a){
   const isNew = !a || !a.id; a = a && a.id ? a : {};
   openForm({eyebrow:'Stock', title:isNew?'Nouvel article':'Modifier l’article',
     fields:[{key:'designation',label:'Désignation',required:true,full:true},{key:'ref',label:'Référence',required:true},{key:'categorie',label:'Catégorie',type:'select',options:[...new Set(D.articles.map(x=>x.categorie))]},
-      {key:'marque',label:'Marque',required:true},{key:'methode',label:'Méthode de valorisation',type:'select',options:['CMUP','FIFO']},
+      {key:'marque',label:'Marque',required:true},{key:'methode',label:'Méthode de valorisation',type:'select',options:['FEFO','CMUP','FIFO']},
       {key:'prixAchat',label:'Prix d’achat (DA)',type:'number',required:true,min:0},{key:'prixVente',label:'Prix de vente HT (DA)',type:'number',required:true,min:0},
       {key:'stockMin',label:'Seuil minimum',type:'number',default:5,min:0},{key:'stockMax',label:'Seuil maximum',type:'number',default:30,min:0},
-      {key:'garantieMois',label:'Garantie (mois)',type:'number',default:12,min:0},{key:'serialise',label:'Suivi',type:'checkbox',hint:'Suivre chaque pièce par n° de série'}],
+      {key:'unite',label:'Unité de vente',default:'Boîte'},{key:'garantieMois',label:'Garantie (mois)',type:'number',default:0,min:0},{key:'perissable',label:'Péremption',type:'checkbox',hint:'Suivi par lot et date de péremption (FEFO)'},{key:'serialise',label:'Suivi',type:'checkbox',hint:'Suivre chaque équipement par n° de série'}],
     values:a, onDelete: isNew?null:()=>{ D.articles.splice(D.articles.indexOf(a),1); save(); toast('Article supprimé'); render(); },
-    onSave: v => { if (isNew) { const n = {id:newId('A'),unite:'Unité',cmup:v.prixAchat,stocks:Object.fromEntries(D.depots.map(d=>[d.id,0])),emplacement:'A1-1',actif:true,...v}; D.articles.unshift(n); toast(`Article ${n.ref} créé`); } else { Object.assign(a,v); toast('Article mis à jour'); } save(); render(); }});
+    onSave: v => { if (isNew) { const n = {id:newId('A'),cond:{buy:[50,500],big:[50,500],small:[1,20]},cmup:v.prixAchat,stocks:Object.fromEntries(D.depots.map(d=>[d.id,0])),emplacement:'A1-1',actif:true,...v}; D.articles.unshift(n); toast(`Article ${n.ref} créé`); } else { Object.assign(a,v); toast('Article mis à jour'); } save(); render(); }});
+}
+function lotCfg(){
+  return {id:'lots', noun:'les lots', rows:()=>(D.lots||[]).filter(l=>l.qte>0), onRow:l=>openArticle(art(l.articleId)), facets:['statut','depot'],
+    columns:[{key:'lot',label:'N° de lot',render:r=>`<span class="mono">${esc(r.lot)}</span>`,strong:true},{key:'article',label:'Produit',get:r=>art(r.articleId).designation},{key:'categorie',label:'Catégorie',type:'enum',pill:false,get:r=>art(r.articleId).categorie},{key:'depot',label:'Dépôt',type:'enum',pill:false,get:r=>dep(r.depotId).nom},
+      {key:'qte',label:'Quantité',type:'num',sum:true},{key:'unite',label:'Unité',type:'enum',pill:false,get:r=>art(r.articleId).unite,hidden:true},{key:'fabrication',label:'Fabrication',type:'date',hidden:true},{key:'peremption',label:'Péremption',type:'date'},
+      {key:'jours',label:'Jours restants',type:'num',get:r=>daysBetween(TODAY,r.peremption),render:r=>{ const j = daysBetween(TODAY,r.peremption); return `<b style="color:${j<0?'var(--bad)':j<=90?'var(--bad)':j<=180?'var(--warn)':'var(--fg)'}">${j}</b>`; }},
+      {key:'valeur',label:'Valeur',type:'money',get:r=>r.qte*art(r.articleId).cmup,sum:true},{key:'statut',label:'État',type:'enum',get:lotStatut,facetOptions:['Périmé','Expire < 3 mois','Expire < 6 mois','Valide']}],
+    rowActions: r => lotStatut(r)==='Périmé' ? `<button class="btn sm danger" data-act="destroy">Retirer du stock</button>` : '',
+    onAction: (act, l) => { const a = art(l.articleId); a.stocks[l.depotId] = Math.max(0,(a.stocks[l.depotId]||0)-l.qte); D.mouvements.unshift({id:newId('M'),date:TODAY,type:'Ajustement',articleId:a.id,depotId:l.depotId,depotDestId:'',qte:-l.qte,coutUnitaire:a.cmup,reference:`DEST-${l.lot}`,motif:'Destruction lot périmé',utilisateur:PROFILES[UI.profile].label}); toast(`Lot ${l.lot} retiré : ${num(l.qte)} ${a.unite.toLowerCase()}(s) sortis du stock`); l.qte = 0; save(); render(); },
+    presets:[{name:'Périmés à retirer',facets:{statut:['Périmé']}},{name:'Expirent sous 3 mois, valeur > 100 000 DA',rules:[{key:'jours',op:'between',v:'0',v2:'90'},{key:'valeur',op:'gt',v:'100000',v2:''}]},{name:'Médicaments, péremption < 6 mois',rules:[{key:'categorie',op:'in',v:'Médicaments génériques'},{key:'jours',op:'lte',v:'180',v2:''}]}]};
 }
 function mvtCfg(){
   return {id:'mouvements', noun:'les mouvements', rows:()=>D.mouvements, onRow:m=>openArticle(art(m.articleId)), add:()=>mvtForm('Entrée'), addLabel:'Nouveau mouvement', facets:['type','depot'],
@@ -90,8 +105,8 @@ function mvtForm(type, a){
     onSave: v => {
       const x = art(v.articleId); const q = Number(v.qte); if (!q) return 'Indiquez une quantité non nulle.';
       if (v.type==='Transfert') { if (!v.depotDestId || v.depotDestId===v.depotId) return 'Choisissez un dépôt de destination différent du dépôt de départ.'; if ((x.stocks[v.depotId]||0) < q) return `Stock insuffisant au ${dep(v.depotId).nom} (${x.stocks[v.depotId]||0} disponibles).`; x.stocks[v.depotId]-=q; x.stocks[v.depotDestId]=(x.stocks[v.depotDestId]||0)+q; }
-      else if (v.type==='Sortie') { if ((x.stocks[v.depotId]||0) < q) return `Stock insuffisant (${x.stocks[v.depotId]||0} disponibles).`; x.stocks[v.depotId]-=q; }
-      else if (v.type==='Entrée') { const old = qtyTot(x); x.stocks[v.depotId]=(x.stocks[v.depotId]||0)+q; if (x.methode==='CMUP') x.cmup = Math.round((old*x.cmup + q*x.prixAchat)/(old+q)); }
+      else if (v.type==='Sortie') { if ((x.stocks[v.depotId]||0) < q) return `Stock insuffisant (${x.stocks[v.depotId]||0} disponibles).`; x.stocks[v.depotId]-=q; if (x.perissable) consumeLots(x.id, v.depotId, q); }
+      else if (v.type==='Entrée') { const old = qtyTot(x); x.stocks[v.depotId]=(x.stocks[v.depotId]||0)+q; addLot(x, v.depotId, q); if (x.methode==='CMUP') x.cmup = Math.round((old*x.cmup + q*x.prixAchat)/(old+q)); }
       else { x.stocks[v.depotId]=Math.max(0,(x.stocks[v.depotId]||0)+q); }
       D.mouvements.unshift({id:newId('M'),date:v.date||TODAY,type:v.type,articleId:x.id,depotId:v.depotId,depotDestId:v.type==='Transfert'?v.depotDestId:'',qte:q,coutUnitaire:x.cmup,reference:v.reference||`${v.type.slice(0,3).toUpperCase()}-${Math.floor(Math.random()*9000+1000)}`,motif:v.motif||v.type,utilisateur:PROFILES[UI.profile].label});
       save(); toast(`${v.type} de ${num(Math.abs(q))} × ${x.designation} enregistré`); render();
@@ -167,7 +182,7 @@ function openAchat(b){
     onMount: d => {
       d.querySelector('[data-f]').onclick = e => { e.preventDefault(); openFournisseur(f); };
       const n = d.querySelector('[data-next]'); if (n) n.onclick = () => { b.statut = next; if (next==='Livrée') { b.dateLivraison=TODAY; b.bl=`BL-${Math.floor(Math.random()*90000+10000)}`; b.factureFrs=`F-${f.code.slice(4)}-${Math.floor(Math.random()*9000+1000)}`; b.rapprochement='Conforme'; b.echeance = addDays(TODAY,f.delaiPaiement);
-          b.lignes.forEach(l => { l.qteRecue=l.qte; const a = art(l.articleId); const old = qtyTot(a); a.stocks[b.depotId]=(a.stocks[b.depotId]||0)+l.qte; if (a.methode==='CMUP') a.cmup = Math.round((old*a.cmup+l.qte*l.pu)/(old+l.qte)); D.mouvements.unshift({id:newId('M'),date:TODAY,type:'Entrée',articleId:a.id,depotId:b.depotId,depotDestId:'',qte:l.qte,coutUnitaire:l.pu,reference:b.num,motif:'Réception fournisseur',utilisateur:PROFILES[UI.profile].label}); });
+          b.lignes.forEach(l => { l.qteRecue=l.qte; const a = art(l.articleId); const old = qtyTot(a); a.stocks[b.depotId]=(a.stocks[b.depotId]||0)+l.qte; addLot(a, b.depotId, l.qte); if (a.methode==='CMUP') a.cmup = Math.round((old*a.cmup+l.qte*l.pu)/(old+l.qte)); D.mouvements.unshift({id:newId('M'),date:TODAY,type:'Entrée',articleId:a.id,depotId:b.depotId,depotDestId:'',qte:l.qte,coutUnitaire:l.pu,reference:b.num,motif:'Réception fournisseur',utilisateur:PROFILES[UI.profile].label}); });
           D.ecritures.unshift({id:newId('EC'),num:nextNum(D.ecritures,'num','ACH-'),date:TODAY,journal:'ACH',libelle:`Facture fournisseur ${b.factureFrs} — ${f.raison}`,circuit:'A',lignes:[['380000',b.montantHT,0],['445600',b.tva,0],[f.pays==='Algérie'?'401000':'401100',0,b.ttc]],origine:'Fournisseurs',reference:b.num,statut:'Brouillard'});
           toast('Réception enregistrée : stock mis à jour, écriture d’achat générée'); } else toast(`${b.num} : ${next}`); save(); openAchat(b); render(); };
       const p = d.querySelector('[data-pay]'); if (p) p.onclick = () => { const m = achatReste(b); b.paye += m; D.tresorerie.unshift({id:newId('TR'),date:TODAY,compteId:'BQ1',sens:'Décaissement',categorie:f.pays==='Algérie'?'Paiement fournisseur':'Paiement fournisseur (import)',montant:m,libelle:`${b.num} — ${f.raison}`,reference:b.num,rapproche:false});
@@ -230,13 +245,13 @@ function renderCreances(){
 const clientEnc = c => sum(D.factures.filter(f=>f.clientId===c.id),facReste);
 const clientRetard = c => sum(D.factures.filter(f=>f.clientId===c.id&&f.echeance<TODAY),facReste);
 function clientCfg(){
-  return {id:'clients', noun:'les clients', rows:S.clients, onRow:openClient, facets:['type','circuit'], add:()=>clientForm(), addLabel:'Nouveau client',
-    columns:[{key:'code',label:'Code',render:r=>`<span class="mono">${r.code}</span>`},{key:'raison',label:'Client',strong:true},{key:'type',label:'Type',type:'enum',pill:false},{key:'wilaya',label:'Wilaya',type:'enum',pill:false},{key:'commercial',label:'Commercial',type:'enum',pill:false,get:r=>empName(r.commercialId)},
+  return {id:'clients', noun:'les clients', rows:S.clients, onRow:openClient, facets:['segment','type','circuit'], add:()=>clientForm(), addLabel:'Nouveau client',
+    columns:[{key:'code',label:'Code',render:r=>`<span class="mono">${r.code}</span>`},{key:'raison',label:'Client',strong:true},{key:'type',label:'Type',type:'enum',pill:false},{key:'segment',label:'Segment',type:'enum',get:r=>r.gros?'Vente en gros':'Détail',render:r=>pill(r.gros?'Vente en gros':'Détail',r.gros?'acc':'plain')},{key:'wilaya',label:'Wilaya',type:'enum',pill:false},{key:'commercial',label:'Commercial',type:'enum',pill:false,get:r=>empName(r.commercialId)},
       {key:'circuit',label:'Circuit',type:'enum',get:r=>r.assujettiTVA?'A':'B',render:r=>circ(r.assujettiTVA?'A':'B'),facetLabel:v=>v==='A'?'A · Soumis':'B · Non soumis'},{key:'delai',label:'Délai (j)',type:'num',hidden:true},{key:'plafond',label:'Plafond',type:'money'},
       {key:'encours',label:'Encours',type:'money',get:clientEnc,sum:true},{key:'retard',label:'Dont échu',type:'money',get:clientRetard,sum:true},
       {key:'util',label:'Plafond utilisé',type:'num',get:r=>Math.round(clientEnc(r)/r.plafond*100),render:r=>{const p=Math.round(clientEnc(r)/r.plafond*100);return `<span class="bar-cell">${p} %<i style="width:${Math.min(60,p*.6)}px;${p>90?'background:var(--bad)':p>70?'background:var(--warn)':''}"></i></span>`;}},
       {key:'nif',label:'NIF',hidden:true},{key:'tel',label:'Téléphone',hidden:true}],
-    presets:[{name:'Plafond dépassé à 90 %',rules:[{key:'util',op:'gte',v:'90',v2:''}]},{name:'Retard > 200 000 DA',rules:[{key:'retard',op:'gt',v:'200000',v2:''}]},{name:'Concessionnaires et flottes',match:'any',rules:[{key:'type',op:'in',v:'Concessionnaire'},{key:'type',op:'in',v:'Flotte d’entreprise'}]}]};
+    presets:[{name:'Plafond dépassé à 90 %',rules:[{key:'util',op:'gte',v:'90',v2:''}]},{name:'Retard > 200 000 DA',rules:[{key:'retard',op:'gt',v:'200000',v2:''}]},{name:'Grossistes et hôpitaux',match:'any',rules:[{key:'type',op:'in',v:'Grossiste répartiteur'},{key:'type',op:'in',v:'Hôpital public (EPH / CHU)'}]}]};
 }
 function openClient(c){
   const facs = D.factures.filter(f=>f.clientId===c.id).sort((a,b)=>b.date.localeCompare(a.date));
@@ -260,7 +275,7 @@ function clientForm(c){
     fields:[{key:'raison',label:'Raison sociale / nom',required:true,full:true},{key:'type',label:'Type',type:'select',options:[...new Set(D.clients.map(x=>x.type))]},{key:'wilaya',label:'Wilaya',type:'select',options:[...new Set(D.clients.map(x=>x.wilaya))].sort()},
       {key:'commercialId',label:'Commercial',type:'select',options:D.employes.filter(e=>e.poste==='Commercial terrain'&&e.statut==='Actif').map(e=>[e.id,e.prenom+' '+e.nom])},{key:'tel',label:'Téléphone'},{key:'email',label:'E-mail'},
       {key:'nif',label:'NIF'},{key:'rc',label:'Registre du commerce'},{key:'plafond',label:'Plafond d’encours (DA)',type:'number',default:500000},{key:'delai',label:'Délai de paiement (jours)',type:'number',default:30},
-      {key:'assujettiTVA',label:'Fiscalité',type:'checkbox',hint:'Assujetti à la TVA (circuit A)',default:true,full:true}],
+      {key:'assujettiTVA',label:'Fiscalité',type:'checkbox',hint:'Assujetti à la TVA (circuit A)',default:true,full:true},{key:'gros',label:'Segment',type:'checkbox',hint:'Client de vente en gros (grossiste, hôpital, revendeur…)',full:true}],
     onSave: v => { if (isNew) { const n = {id:newId('CL'),code:'CLI-'+String(D.clients.length+1).padStart(4,'0'),commune:v.wilaya,ai:'',dateCreation:TODAY,bloque:false,...v}; D.clients.unshift(n); toast(`Client ${n.code} créé`); } else { Object.assign(c,v); toast('Client mis à jour'); } save(); render(); }});
 }
 function factureCfg(){

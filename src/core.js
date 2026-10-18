@@ -58,9 +58,9 @@ const sum = (arr,f) => arr.reduce((s,x)=>s+(f(x)||0),0);
 const groupBy = (arr,f) => arr.reduce((m,x)=>{ const k=f(x); (m[k] ||= []).push(x); return m; },{});
 
 const PILL = {
-  ok:['Livrée','Livré','Payée','Encaissé','Approuvé','Actif','Validée','Conforme','Clôturée','Résolu','Clôturé','OK','Mappée','Terminée','Sous garantie','Rapproché','Validé','Envoyée','Disponible','Reçu'],
-  warn:['Partielle','En attente','Préparée','Reporté','Absent','Alerte','Remis à l’encaissement','En cours','En cours de clôture','Partielle mapping','Écart quantité','Écart prix','CDD','Période d’essai','Brouillard','Haute','À échéance','Non rapproché','Retour / Échange','Surstock'],
-  bad:['En retard','Annulée','Refusé','Rejeté','Rupture','Critique','Sorti','Garantie expirée','Non éligible','Ouvert','Échu'],
+  ok:['Valide','Livré','Payée','Encaissé','Approuvé','Actif','Validée','Conforme','Clôturée','Résolu','Clôturé','OK','Mappée','Terminée','Sous garantie','Rapproché','Validé','Envoyée','Disponible','Reçu'],
+  warn:['Expire < 6 mois','En attente','Préparée','Reporté','Absent','Alerte','Remis à l’encaissement','En cours','En cours de clôture','Partielle mapping','Écart quantité','Écart prix','CDD','Période d’essai','Brouillard','Haute','À échéance','Non rapproché','Retour / Échange','Surstock'],
+  bad:['Périmé','Expire < 3 mois','Annulée','Refusé','Rejeté','Rupture','Critique','Sorti','Garantie expirée','Non éligible','Ouvert','Échu'],
   info:['Validée ','Expédiée','En livraison','En route','En portefeuille','Émis','Créée','Brouillon','Ouverte','Normale','Différentielle','En stock'],
 };
 function pill(v, kind){
