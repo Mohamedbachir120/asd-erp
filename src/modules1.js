@@ -267,12 +267,12 @@ function openCommande(c){
   const cl = cli(c.clientId); const fac = D.factures.find(f=>f.commandeId===c.id);
   const i = CMD_FLOW.indexOf(c.statut); const next = c.statut!=='Annulée' && i>=0 && i<CMD_FLOW.length-1 ? CMD_FLOW[i+1] : null;
   const verb = {Validée:'Valider la commande',Préparée:'Marquer préparée',Expédiée:'Expédier et facturer','En livraison':'Mettre en livraison',Livrée:'Confirmer la livraison'};
-  openDrawer({eyebrow:'Commande client', title:`${c.num}`,
+  openDrawer({eyebrow:'Commande client', title:`${c.num}`, ent:['commandes',c],
     body: `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">${pill(c.statut)} ${circ(c.circuit)} ${stepper(CMD_FLOW,c.statut)}</div>`
       + kv([['Client',`<a href="#" data-cl>${esc(cl.raison)}</a> <span class="muted">(${esc(cl.code)})</span>`],['Date',fd(c.date)],['Commercial',esc(empName(c.commercialId))],['Dépôt',esc(dep(c.depotId).nom)],['Adresse de livraison',esc(c.adresse)],['Livraison prévue',fd(c.dateLivraisonPrevue)],['Livreur',c.livreurId?esc(empName(c.livreurId)):''],['Statut livraison',c.statutLivraison?pill(c.statutLivraison):''],['Livrée le',fd(c.dateLivraison)],['Facture',fac?`<a href="#" data-fac>${fac.num}</a> · ${pill(facStatut(fac))}`:'']])
       + sec('Lignes', miniTable(['Article','#Qté','#PU HT','#Remise','#Total HT'], c.lignes.map(l=>[`${esc(art(l.articleId).designation)}<div class="muted mono" style="font-size:11px">${esc(art(l.articleId).ref)}</div>`, num(l.qte), da(l.pu), l.remise?l.remise+' %':'—', da(l.qte*l.pu*(1-l.remise/100))]).concat([[`<b>Total</b>`,'','','',`<b>${da(c.montantHT)}</b>`],['TVA '+(c.circuit==='A'?'19 %':'(non soumis)'),'','','',da(c.tva)],['<b>Total TTC</b>','','','',`<b>${da(c.ttc)}</b>`]])))
       + (cl.plafond ? sec('Encours client', encoursBar(cl)) : ''),
-    foot: `${c.statut!=='Livrée'&&c.statut!=='Annulée'?`<button class="btn danger" data-cancel style="margin-right:auto">Annuler</button>`:''}${next?`<button class="btn primary" data-next>${ic('check')} ${verb[next]}</button>`:''}`,
+    foot: `${c.statut!=='Livrée'&&c.statut!=='Annulée'?`<button class="btn danger" data-cancel style="margin-right:auto">Annuler la commande</button>`:''}${next?`<button class="btn primary" data-next>${ic('check')} ${verb[next]}</button>`:''}`,
     onMount: d => {
       d.querySelector('[data-cl]').onclick = e => { e.preventDefault(); openClient(cl); };
       const fa = d.querySelector('[data-fac]'); if (fa) fa.onclick = e => { e.preventDefault(); openFacture(fac); };
@@ -299,25 +299,6 @@ function encoursBar(cl){
   const enc = sum(D.factures.filter(f=>f.clientId===cl.id), facReste); const pct = Math.min(100, enc/cl.plafond*100);
   const col = pct>90?'var(--bad)':pct>70?'var(--warn)':'var(--ok)';
   return `<div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:6px"><span>Encours <b>${da(enc)}</b></span><span class="muted">Plafond ${da(cl.plafond)}</span></div><div style="height:8px;background:var(--surface-2);border-radius:4px;overflow:hidden"><div style="height:100%;width:${pct}%;background:${col};border-radius:4px"></div></div><div class="muted" style="font-size:12px;margin-top:5px">${Math.round(pct)} % du plafond autorisé utilisé</div>`;
-}
-function newCommandeForm(){
-  const clients = S.clients().slice().sort((a,b)=>a.raison.localeCompare(b.raison,'fr'));
-  const arts = D.articles.slice().sort((a,b)=>a.designation.localeCompare(b.designation,'fr')).map(a=>[a.id,`${a.designation} — ${da(a.prixVente)}`]);
-  openForm({eyebrow:'Ventes', title:'Nouvelle commande client', submitLabel:'Créer la commande',
-    fields:[{key:'clientId',label:'Client',type:'select',options:clients.map(c=>[c.id,`${c.raison} · ${c.wilaya}`]),required:true,full:true},
-      {key:'depotId',label:'Dépôt d’expédition',type:'select',options:D.depots.map(d=>[d.id,d.nom])},{key:'date',label:'Date',type:'date',default:TODAY},
-      {key:'a1',label:'Article 1',type:'select',options:arts,required:true,full:true},{key:'q1',label:'Quantité 1',type:'number',default:1,min:1},{key:'r1',label:'Remise 1 (%)',type:'number',default:0,min:0},
-      {key:'a2',label:'Article 2',type:'select',options:arts,allowEmpty:true,full:true},{key:'q2',label:'Quantité 2',type:'number',default:1,min:1},{key:'r2',label:'Remise 2 (%)',type:'number',default:0,min:0},
-      {key:'force',label:'Dépassement de plafond',type:'checkbox',hint:'Autoriser si l’encours dépasse le plafond',full:true}],
-    onSave: v => {
-      const cl = cli(v.clientId); const lignes = [];
-      [[v.a1,v.q1,v.r1],[v.a2,v.q2,v.r2]].forEach(([a,q,r]) => { if (a && q>0) lignes.push({articleId:a,qte:+q,pu:art(a).prixVente,remise:+r||0}); });
-      const ht = Math.round(sum(lignes,l=>l.qte*l.pu*(1-l.remise/100))); const circuit = cl.assujettiTVA?'A':'B'; const tva = circuit==='A'?Math.round(ht*.19):0;
-      const enc = sum(D.factures.filter(f=>f.clientId===cl.id), facReste);
-      if (enc + ht + tva > cl.plafond && !v.force) return `Encours actuel ${da(enc)} + cette commande ${da(ht+tva)} dépasse le plafond de ${da(cl.plafond)}. Cochez « Autoriser » pour forcer.`;
-      const c = {id:newId('CM'),num:nextNum(D.commandes,'num','BC'),date:v.date||TODAY,clientId:cl.id,commercialId:cl.commercialId,depotId:v.depotId,lignes,montantHT:ht,tva,ttc:ht+tva,circuit,statut:'Brouillon',livreurId:null,dateLivraisonPrevue:addDays(v.date||TODAY,3),dateLivraison:'',statutLivraison:'',adresse:`${cl.wilaya}`,tournee:''};
-      D.commandes.unshift(c); save(); toast(`Commande ${c.num} créée (circuit ${circuit})`); render(); setTimeout(()=>openCommande(c),250);
-    }});
 }
 function renderTournees(el){
   const cmds = S.commandes().filter(c=>['Expédiée','En livraison'].includes(c.statut) && c.livreurId);

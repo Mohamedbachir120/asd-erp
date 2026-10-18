@@ -36,11 +36,11 @@ function ix(){
   IX = { art:by(D.articles), cli:by(D.clients), emp:by(D.employes), frs:by(D.fournisseurs), dep:by(D.depots), cmd:by(D.commandes), fac:by(D.factures), piece:by(D.pieces), cpt:by(D.comptes), pc:by(D.planComptable,'numero') };
   return IX;
 }
-const art = id => ix().art.get(id) || {designation:'—',ref:'—'};
-const cli = id => ix().cli.get(id) || {raison:'—',code:'—'};
+const art = id => ix().art.get(id) || {designation:'Article supprimé',ref:'—',unite:'Unité',marque:'',categorie:'—',stocks:{},cmup:0};
+const cli = id => ix().cli.get(id) || {raison:'Client supprimé',code:'—',wilaya:'—'};
 const emp = id => ix().emp.get(id) || {prenom:'—',nom:''};
 const empName = id => { const e = ix().emp.get(id); return e ? `${e.prenom} ${e.nom}` : '—'; };
-const frs = id => ix().frs.get(id) || {raison:'—'};
+const frs = id => ix().frs.get(id) || {raison:'Fournisseur supprimé',pays:'—',code:'—'};
 const dep = id => ix().dep.get(id) || {nom:'—',code:'—'};
 
 /* ---------- formatage ---------- */
@@ -102,7 +102,29 @@ const ICONS = {
 const ic = (n,attrs='') => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" ${attrs}>${ICONS[n]||''}</svg>`;
 
 /* ---------- toast ---------- */
-function toast(msg){ const t = document.createElement('div'); t.className='toast'; t.textContent=msg; document.getElementById('toasts').appendChild(t); setTimeout(()=>t.remove(), 3200); }
+function toast(msg, action){ const t = document.createElement('div'); t.className='toast'; const sp = document.createElement('span'); sp.textContent = msg; t.appendChild(sp);
+  if (action) { const b = document.createElement('button'); b.textContent = action.label; b.onclick = () => { t.remove(); action.fn(); }; t.appendChild(b); }
+  document.getElementById('toasts').appendChild(t); setTimeout(()=>t.remove(), action ? 7000 : 3200); }
+/* ---------- dialogue de confirmation ---------- */
+function confirmDlg({title, body='', ok='Supprimer', danger=true}){
+  return new Promise(res => {
+    const w = document.createElement('div'); w.className = 'modal-scrim';
+    w.innerHTML = `<div class="modal" role="alertdialog" aria-modal="true" aria-labelledby="mdlT"><h3 id="mdlT">${title}</h3>${body?`<p>${body}</p>`:''}<div class="acts"><button class="btn" data-no>Annuler</button><button class="btn ${danger?'danger solid':'primary'}" data-yes>${esc(ok)}</button></div></div>`;
+    const done = v => { w.remove(); document.removeEventListener('keydown', key, true); res(v); };
+    const key = e => { if (e.key==='Escape') { e.stopPropagation(); done(false); } };
+    w.onclick = e => { if (e.target===w || e.target.closest('[data-no]')) done(false); else if (e.target.closest('[data-yes]')) done(true); };
+    document.addEventListener('keydown', key, true);
+    document.body.appendChild(w); setTimeout(()=>w.querySelector('[data-yes]').focus(), 20);
+  });
+}
+/* ---------- action annulable : instantané des données, puis bouton « Annuler » dans le toast ---------- */
+function undoable(msg, fn){
+  const snap = JSON.stringify(D);
+  const out = fn(); if (typeof out === 'string') { toast(out); return false; }
+  save(); render();
+  toast(msg, {label:'Annuler', fn:()=>{ D = JSON.parse(snap); IX = null; save(); render(); toast('Action annulée, données restaurées'); }});
+  return true;
+}
 async function copyText(text, okMsg){
   try { await navigator.clipboard.writeText(text); toast(okMsg); }
   catch(e){ openDrawer({eyebrow:'Export', title:'Copier les données', body:`<p class="muted">La copie automatique est bloquée ici. Sélectionnez le texte ci-dessous puis copiez-le (Ctrl+C).</p><textarea class="inp mono" id="copyArea" style="width:100%;height:60vh;font-size:11.5px">${esc(text)}</textarea>`}); setTimeout(()=>{ const a=document.getElementById('copyArea'); a && a.select(); },50); }
@@ -169,8 +191,19 @@ function ruleLabel(cfg, rule){
   return `<b>${esc(col.label)}</b> ${esc(op)} ${esc(v)}`;
 }
 
+const rowKey = r => r.id ?? r.numero;
+function crudOf(cfg){ const k = cfg.crudKey || cfg.id; return cfg.crud || (typeof CRUD!=='undefined' ? CRUD[k] : null) || null; }
+function crudIcons(crud, r){
+  const lock = crud.lock ? crud.lock(r) : ''; const b = [];
+  if (crud.edit) b.push(`<button class="ra ${lock?'off':''}" data-crud="edit" ${lock?`aria-disabled="true" data-why="${esc(lock)}" title="${esc(lock)}"`:'title="Modifier"'} aria-label="Modifier">${ic('edit')}</button>`);
+  if (crud.dup) b.push(`<button class="ra" data-crud="dup" title="Dupliquer" aria-label="Dupliquer">${ic('copy')}</button>`);
+  if (crud.remove!==false) { const why = crud.check ? crud.check(r) : ''; b.push(`<button class="ra del ${why?'off':''}" data-crud="del" ${why?`aria-disabled="true" data-why="${esc(why)}" title="${esc(why)}"`:'title="Supprimer"'} aria-label="Supprimer">${ic('trash')}</button>`); }
+  return `<span class="ra-g">${b.join('')}</span>`;
+}
 function renderTable(el, cfg){
   const st = tState(cfg.id);
+  const crud = crudOf(cfg); const selectable = !!(crud && crud.remove!==false); const sel = new Set();
+  const hasActs = !!(cfg.rowActions || crud);
   if (!st.hidden) st.hidden = cfg.columns.filter(c=>c.hidden).map(c=>c.key);
   const facets = (cfg.facets||[]).map(k => cfg.columns.find(c=>c.key===k)).filter(Boolean);
   const presets = cfg.presets || [];
@@ -187,6 +220,7 @@ function renderTable(el, cfg){
     ${facets.length ? `<div class="facets" id="fac-${cfg.id}"></div>` : ''}
     <div id="bld-${cfg.id}"></div>
     <div class="active-f" id="af-${cfg.id}"></div>
+    <div id="bulk-${cfg.id}"></div>
     <div id="res-${cfg.id}"></div>
   </div>`;
   const q = el.querySelector(`#q-${cfg.id}`);
@@ -252,18 +286,45 @@ function renderTable(el, cfg){
     const sums = vis.map(c => c.sum ? sum(rows, r=>+colVal(c,r)||0) : null);
     const anySum = sums.some(s=>s!==null);
     const res = el.querySelector(`#res-${cfg.id}`);
-    res.innerHTML = `<div class="dt-wrap"><table class="t"><thead><tr>${vis.map(c=>`<th class="${c.sortable===false?'':'sortable'} ${['money','num'].includes(c.type)||c.align==='r'?'r':''}" data-sort="${esc(c.key)}">${esc(c.label)}${st.sort&&st.sort.key===c.key?`<span class="arr">${st.sort.dir>0?'▲':'▼'}</span>`:''}</th>`).join('')}${cfg.rowActions?'<th></th>':''}</tr></thead>
-      <tbody>${slice.length ? slice.map((r,i)=>`<tr data-i="${st.page*st.size+i}">${vis.map(c=>`<td class="${['money','num'].includes(c.type)||c.align==='r'?'num':''} ${c.strong?'strong':''}">${cellHtml(c,r)}</td>`).join('')}${cfg.rowActions?`<td class="num">${cfg.rowActions(r)}</td>`:''}</tr>`).join('') : `<tr><td colspan="${vis.length+(cfg.rowActions?1:0)}" class="empty">Aucun résultat pour ces filtres. <button class="btn sm" data-afx="all" style="margin-left:6px">Effacer les filtres</button></td></tr>`}</tbody>
-      ${anySum && rows.length ? `<tfoot><tr>${vis.map((c,i)=> i===0 ? `<td>Total filtré</td>` : sums[i]!==null ? `<td class="num">${c.type==='money'?da(sums[i]):num(sums[i])}</td>` : '<td></td>').join('')}${cfg.rowActions?'<td></td>':''}</tr></tfoot>`:''}
+    const allSel = selectable && slice.length>0 && slice.every(r=>sel.has(rowKey(r)));
+    const ncol = vis.length + (hasActs?1:0) + (selectable?1:0);
+    res.innerHTML = `<div class="dt-wrap"><table class="t"><thead><tr>${selectable?`<th class="sel-c"><input type="checkbox" data-selall ${allSel?'checked':''} aria-label="Sélectionner la page"></th>`:''}${vis.map(c=>`<th class="${c.sortable===false?'':'sortable'} ${['money','num'].includes(c.type)||c.align==='r'?'r':''}" data-sort="${esc(c.key)}">${esc(c.label)}${st.sort&&st.sort.key===c.key?`<span class="arr">${st.sort.dir>0?'▲':'▼'}</span>`:''}</th>`).join('')}${hasActs?'<th class="r acts">Actions</th>':''}</tr></thead>
+      <tbody>${slice.length ? slice.map((r,i)=>`<tr data-i="${st.page*st.size+i}" class="${selectable&&sel.has(rowKey(r))?'is-sel':''}">${selectable?`<td class="sel-c" data-selcell><input type="checkbox" data-sel ${sel.has(rowKey(r))?'checked':''} aria-label="Sélectionner la ligne"></td>`:''}${vis.map(c=>`<td class="${['money','num'].includes(c.type)||c.align==='r'?'num':''} ${c.strong?'strong':''}">${cellHtml(c,r)}</td>`).join('')}${hasActs?`<td class="num acts">${cfg.rowActions?cfg.rowActions(r):''}${crud?crudIcons(crud,r):''}</td>`:''}</tr>`).join('') : `<tr><td colspan="${ncol}" class="empty">Aucun résultat pour ces filtres. <button class="btn sm" data-afx="all" style="margin-left:6px">Effacer les filtres</button></td></tr>`}</tbody>
+      ${anySum && rows.length ? `<tfoot><tr>${selectable?'<td></td>':''}${vis.map((c,i)=> i===0 ? `<td>Total filtré</td>` : sums[i]!==null ? `<td class="num">${c.type==='money'?da(sums[i]):num(sums[i])}</td>` : '<td></td>').join('')}${hasActs?'<td class="acts"></td>':''}</tr></tfoot>`:''}
     </table></div>
     <div class="dt-foot"><span><b style="color:var(--fg)">${num(rows.length)}</b> ligne${rows.length>1?'s':''} sur ${num(cfg.rows().length)}</span>
       <div class="pager"><select class="sel" data-size style="padding:4px 6px">${[10,25,50,100].map(n=>`<option ${n===st.size?'selected':''} value="${n}">${n} / page</option>`).join('')}</select>
       <button class="btn sm" data-pg="-1" ${st.page===0?'disabled':''}>Précédent</button><span style="padding:0 6px">${st.page+1} / ${pages}</span><button class="btn sm" data-pg="1" ${st.page>=pages-1?'disabled':''}>Suivant</button></div></div>`;
-    res._rows = rows;
+    res._rows = rows; res._slice = slice; renderBulk();
+  }
+  function renderBulk(){
+    const box = el.querySelector(`#bulk-${cfg.id}`); if (!box) return;
+    // la sélection ne garde que les lignes encore présentes
+    const alive = new Set(cfg.rows().map(rowKey)); [...sel].forEach(k => { if (!alive.has(k)) sel.delete(k); });
+    if (!sel.size) { box.innerHTML = ''; return; }
+    const rows = el.querySelector(`#res-${cfg.id}`)._rows || [];
+    const more = rows.length > sel.size && rows.length > st.size;
+    box.innerHTML = `<div class="bulk"><b>${num(sel.size)}</b> sélectionné${sel.size>1?'s':''}${more?` <button class="btn sm ghost" data-bulk="all">Sélectionner les ${num(rows.length)} lignes filtrées</button>`:''}<span class="dt-spacer"></span>
+      ${(crud.bulk||[]).map((b,i)=>`<button class="btn sm" data-bulk="x${i}">${esc(b.label)}</button>`).join('')}
+      <button class="btn sm" data-bulk="csv">${ic('copy')} Copier CSV</button><button class="btn sm danger" data-bulk="del">${ic('trash')} Supprimer</button><button class="btn sm ghost" data-bulk="clear">Désélectionner</button></div>`;
+  }
+  const selRows = () => cfg.rows().filter(r => sel.has(rowKey(r)));
+  async function bulkAction(k){
+    if (k==='clear') { sel.clear(); renderResults(); return; }
+    if (k==='all') { (el.querySelector(`#res-${cfg.id}`)._rows||[]).forEach(r=>sel.add(rowKey(r))); renderResults(); return; }
+    if (k==='csv') { exportCsv(selRows()); return; }
+    if (k==='del') { const rs = selRows(); const ok = await confirmDlg({title:`Supprimer ${rs.length} élément${rs.length>1?'s':''} ?`, body:`Les éléments liés à d’autres documents (factures, mouvements, écritures…) seront conservés. Vous pourrez annuler juste après.`}); if (!ok) return; crudRemoveMany(crud, rs); sel.clear(); return; }
+    if (k[0]==='x') { const b = crud.bulk[+k.slice(1)]; const rs = selRows(); undoable(b.done ? b.done(rs.length) : `${b.label} : ${rs.length} élément(s)`, () => b.fn(rs)); sel.clear(); }
   }
   renderBuilder(); renderResults();
 
   el.onclick = e => {
+    if (e.target.matches('[data-selall]')) { const sl = el.querySelector(`#res-${cfg.id}`)._slice||[]; sl.forEach(r => e.target.checked ? sel.add(rowKey(r)) : sel.delete(rowKey(r))); renderResults(); return; }
+    const sc = e.target.closest('[data-selcell]');
+    if (sc) { const tr = sc.closest('tr'); const r = el.querySelector(`#res-${cfg.id}`)._rows[+tr.dataset.i]; const k = rowKey(r); sel.has(k) ? sel.delete(k) : sel.add(k); renderResults(); return; }
+    const bk = e.target.closest('[data-bulk]'); if (bk) { bulkAction(bk.dataset.bulk); return; }
+    const cb = e.target.closest('[data-crud]');
+    if (cb) { e.stopPropagation(); if (cb.dataset.why) { toast(cb.dataset.why); return; } const r = el.querySelector(`#res-${cfg.id}`)._rows[+cb.closest('tr').dataset.i]; crudDo(crud, cb.dataset.crud, r); return; }
     const t = e.target.closest('[data-t],[data-facet],[data-afx],[data-sort],[data-pg],[data-radd],[data-rdel],[data-rclear],[data-preset],[data-act],tr[data-i]');
     if (!t) return;
     if (t.dataset.act) { e.stopPropagation(); const tr = t.closest('tr'); const rows = el.querySelector(`#res-${cfg.id}`)._rows; cfg.onAction && cfg.onAction(t.dataset.act, rows[+tr.dataset.i]); return; }
@@ -316,8 +377,8 @@ function renderTable(el, cfg){
     popMenu(btn, `<div class="mh">Colonnes affichées</div>` + cfg.columns.map(c=>`<label class="mi"><input type="checkbox" data-col="${esc(c.key)}" ${st.hidden.includes(c.key)?'':'checked'}> ${esc(c.label)}</label>`).join(''),
       pop => { pop.onchange = ev => { const k = ev.target.dataset.col; if (!k) return; if (ev.target.checked) st.hidden = st.hidden.filter(x=>x!==k); else st.hidden.push(k); saveUI(); renderResults(); }; });
   }
-  function exportCsv(){
-    const rows = filterRows(cfg, st); const vis = cfg.columns.filter(c => !st.hidden.includes(c.key));
+  function exportCsv(only){
+    const rows = only || filterRows(cfg, st); const vis = cfg.columns.filter(c => !st.hidden.includes(c.key));
     const cell = v => { const s = String(v??''); return /[;"\n]/.test(s) ? `"${s.replace(/"/g,'""')}"` : s; };
     const txt = [vis.map(c=>cell(c.label)).join(';')].concat(rows.map(r => vis.map(c => { const v = colVal(c,r); return cell(c.type==='date'?fd(v):v); }).join(';'))).join('\n');
     copyText(txt, `${num(rows.length)} lignes copiées au format CSV (séparateur ;)`);
@@ -336,48 +397,102 @@ function popMenu(btn, html, bind){
 document.addEventListener('click', e => { if (popEl && !popEl.contains(e.target) && e.target.closest('.menu') !== popEl.parentElement) closePop(); });
 
 /* ================= TIROIR & FORMULAIRES ================= */
-function openDrawer({eyebrow='', title='', body='', foot='', onMount}){
+function openDrawer({eyebrow='', title='', body='', foot='', onMount, wide=false, ent=null}){
   const d = document.getElementById('drawer');
-  d.innerHTML = `<div class="drawer-h"><div style="flex:1;min-width:0">${eyebrow?`<div class="eyebrow">${eyebrow}</div>`:''}<h2>${title}</h2></div><button class="icon-btn" data-close aria-label="Fermer">${ic('x')}</button></div>
+  const cr = ent && typeof CRUD!=='undefined' ? CRUD[ent[0]] : null; const item = ent && ent[1];
+  const lock = cr && cr.lock ? cr.lock(item) : ''; const why = cr && cr.check ? cr.check(item) : '';
+  const acts = cr ? `<div class="drawer-acts">${cr.edit?`<button class="btn sm ${lock?'off':''}" data-dedit ${lock?`data-why="${esc(lock)}" title="${esc(lock)}"`:''}>${ic('edit')} Modifier</button>`:''}${cr.dup?`<button class="icon-btn sm" data-ddup title="Dupliquer" aria-label="Dupliquer">${ic('copy')}</button>`:''}${cr.remove!==false?`<button class="icon-btn sm del ${why?'off':''}" data-ddel title="${esc(why||'Supprimer')}" ${why?`data-why="${esc(why)}"`:''} aria-label="Supprimer">${ic('trash')}</button>`:''}</div>` : '';
+  d.classList.toggle('wide', !!wide);
+  d.innerHTML = `<div class="drawer-h"><div style="flex:1;min-width:0">${eyebrow?`<div class="eyebrow">${eyebrow}</div>`:''}<h2>${title}</h2></div>${acts}<button class="icon-btn" data-close aria-label="Fermer">${ic('x')}</button></div>
     <div class="drawer-b">${body}</div>${foot?`<div class="drawer-f">${foot}</div>`:''}`;
-  d.classList.add('open'); d.setAttribute('aria-hidden','false'); document.getElementById('drawerScrim').classList.add('open');
+  if (cr) d.querySelectorAll('[data-dedit],[data-ddup],[data-ddel]').forEach(b => b.onclick = () => { if (b.dataset.why) { toast(b.dataset.why); return; } crudDo(cr, b.hasAttribute('data-dedit')?'edit':b.hasAttribute('data-ddup')?'dup':'del', item); });
+  d.classList.add('open'); d.setAttribute('aria-hidden','false'); document.getElementById('drawerScrim').classList.add('open'); document.body.classList.add('dw-open'); document.body.classList.toggle('dw-wide', !!wide);
   d.querySelector('[data-close]').onclick = closeDrawer;
   onMount && onMount(d);
   setTimeout(()=>d.querySelector('[data-close]').focus(), 30);
 }
-function closeDrawer(){ const d = document.getElementById('drawer'); d.classList.remove('open'); d.setAttribute('aria-hidden','true'); document.getElementById('drawerScrim').classList.remove('open'); }
+function closeDrawer(){ const d = document.getElementById('drawer'); d.classList.remove('open'); document.body.classList.remove('dw-open','dw-wide'); d.setAttribute('aria-hidden','true'); document.getElementById('drawerScrim').classList.remove('open'); }
 const kv = pairs => `<dl class="kv">${pairs.filter(p=>p).map(([k,v])=>`<dt>${esc(k)}</dt><dd>${v===''||v==null?'<span class="muted">—</span>':v}</dd>`).join('')}</dl>`;
 const sec = (t, html) => `<section><div class="sec-t">${esc(t)}</div>${html}</section>`;
 const miniTable = (heads, rows) => `<div style="overflow-x:auto"><table class="mini"><thead><tr>${heads.map(h=>`<th class="${h.startsWith('#')?'num':''}">${esc(h.replace(/^#/,''))}</th>`).join('')}</tr></thead><tbody>${rows.length?rows.map(r=>`<tr>${r.map((c,i)=>`<td class="${heads[i].startsWith('#')?'num':''}">${c}</td>`).join('')}</tr>`).join(''):`<tr><td colspan="${heads.length}" class="muted">Aucune ligne</td></tr>`}</tbody></table></div>`;
 
-function openForm({eyebrow='Saisie', title, fields, values={}, onSave, submitLabel='Enregistrer', onDelete}){
+function openForm({eyebrow='Saisie', title, fields, values={}, onSave, submitLabel='Enregistrer', onDelete, ent=null, wide}){
   const f = (x) => {
-    const v = values[x.key] ?? x.default ?? '';
+    const v = values[x.key] ?? (typeof x.default==='function' ? x.default() : x.default) ?? '';
     const id = `fld-${x.key}`;
     let input;
+    if (x.type==='lines') return linesHtml(x, Array.isArray(v) ? v : []);
+    if (x.type==='section') return `<div class="full form-sec">${esc(x.label)}</div>`;
     if (x.type==='select') input = `<select class="sel" id="${id}" name="${x.key}">${x.allowEmpty?'<option value="">—</option>':''}${x.options.map(o => { const [val,lab] = Array.isArray(o)?o:[o,o]; return `<option value="${esc(val)}" ${String(val)===String(v)?'selected':''}>${esc(lab)}</option>`; }).join('')}</select>`;
     else if (x.type==='textarea') input = `<textarea class="inp" id="${id}" name="${x.key}" rows="3">${esc(v)}</textarea>`;
     else if (x.type==='checkbox') input = `<label style="display:flex;gap:8px;align-items:center;padding:6px 0"><input type="checkbox" id="${id}" name="${x.key}" ${v?'checked':''}> ${esc(x.hint||'')}</label>`;
-    else input = `<input class="inp" id="${id}" name="${x.key}" type="${x.type||'text'}" value="${esc(v)}" ${x.step?`step="${x.step}"`:''} ${x.min!=null?`min="${x.min}"`:''} placeholder="${esc(x.placeholder||'')}">`;
-    return `<div class="field ${x.full?'full':''}"><label for="${id}">${esc(x.label)}${x.required?' *':''}</label>${input}</div>`;
+    else input = `<input class="inp" id="${id}" name="${x.key}" type="${x.type||'text'}" value="${esc(v)}" ${x.step?`step="${x.step}"`:''} ${x.min!=null?`min="${x.min}"`:''} placeholder="${esc(x.placeholder||'')}" ${x.readonly?'readonly':''}>`;
+    return `<div class="field ${x.full?'full':''}"><label for="${id}">${esc(x.label)}${x.required?' *':''}</label>${input}${x.help?`<span class="help">${esc(x.help)}</span>`:''}</div>`;
   };
-  openDrawer({eyebrow, title,
+  const cr = ent && typeof CRUD!=='undefined' ? CRUD[ent[0]] : null; const item = ent && ent[1];
+  const canDel = cr && item && cr.remove!==false && !(cr.check && cr.check(item));
+  const isWide = wide ?? fields.some(x=>x.type==='lines');
+  openDrawer({eyebrow, title, wide:isWide,
     body:`<form id="frm" class="form-grid" novalidate>${fields.map(f).join('')}<div class="err full" id="frmErr"></div><button type="submit" hidden></button></form>`,
-    foot:`${onDelete?`<button class="btn danger" data-del style="margin-right:auto">${ic('trash')} Supprimer</button>`:''}<button class="btn" data-cancel>Annuler</button><button class="btn primary" data-ok>${esc(submitLabel)}</button>`,
+    foot:`${onDelete||canDel?`<button class="btn danger" data-del style="margin-right:auto">${ic('trash')} Supprimer</button>`:''}<button class="btn" data-cancel>Annuler</button><button class="btn primary" data-ok>${esc(submitLabel)}</button>`,
     onMount: d => {
       const form = d.querySelector('#frm');
+      fields.filter(x=>x.type==='lines').forEach(x => mountLines(form, x, values[x.key]||[]));
       const submit = () => {
-        const out = {};
-        for (const x of fields) { const elx = form.elements[x.key]; let v = x.type==='checkbox' ? elx.checked : elx.value; if (x.type==='number') v = v===''?'':Number(v); out[x.key] = v;
-          if (x.required && (v===''||v==null)) { d.querySelector('#frmErr').textContent = `Le champ « ${x.label} » est obligatoire.`; elx.focus(); return; } }
+        const out = {}; d.querySelector('#frmErr').textContent = '';
+        for (const x of fields) { if (x.type==='section') continue;
+          if (x.type==='lines') { const ls = readLines(form, x); if (x.required && !ls.length) { d.querySelector('#frmErr').textContent = 'Ajoutez au moins une ligne avec un article et une quantité.'; return; } out[x.key] = ls; continue; }
+          const elx = form.elements[x.key]; let v = x.type==='checkbox' ? elx.checked : elx.value; if (x.type==='number') v = v===''?'':Number(v); if (typeof v==='string' && x.type!=='textarea') v = v.trim(); out[x.key] = v;
+          if (x.required && (v===''||v==null)) { d.querySelector('#frmErr').textContent = `Le champ « ${x.label} » est obligatoire.`; elx.focus(); return; }
+          if (x.type==='number' && x.min!=null && v!=='' && v < x.min) { d.querySelector('#frmErr').textContent = `« ${x.label} » doit être supérieur ou égal à ${x.min}.`; elx.focus(); return; } }
         const err = onSave(out); if (typeof err === 'string') { d.querySelector('#frmErr').textContent = err; return; }
-        closeDrawer();
+        if (err !== false) closeDrawer();
       };
       form.addEventListener('submit', e => { e.preventDefault(); submit(); });
       d.querySelector('[data-ok]').onclick = submit;
       d.querySelector('[data-cancel]').onclick = closeDrawer;
-      const del = d.querySelector('[data-del]'); if (del) del.onclick = () => { if (del.dataset.confirm) { onDelete(); closeDrawer(); } else { del.dataset.confirm='1'; del.innerHTML = `${ic('trash')} Confirmer la suppression`; } };
+      const del = d.querySelector('[data-del]'); if (del) del.onclick = () => { if (canDel) { crudDo(cr, 'del', item); return; } if (del.dataset.confirm) { onDelete(); closeDrawer(); } else { del.dataset.confirm='1'; del.innerHTML = `${ic('trash')} Confirmer la suppression`; } };
+      setTimeout(()=>{ const first = form.querySelector('input:not([type=checkbox]):not([readonly]),select,textarea'); if (first && !('ontouchstart' in window)) first.focus(); }, 60);
     }});
+}
+/* ---------- lignes d’articles (commandes clients et fournisseurs) ---------- */
+function linesHtml(x, rows){
+  return `<div class="field full"><label>${esc(x.label)}${x.required?' *':''}</label><div class="lines" data-lines="${x.key}"><div class="lines-w"><table class="mini lines-t"><thead><tr><th>Article</th><th class="num">Qté</th><th class="num">PU HT (DA)</th>${x.remise?'<th class="num">Remise %</th>':''}<th class="num">Total HT</th><th></th></tr></thead><tbody></tbody>
+    <tfoot><tr><td colspan="${x.remise?4:3}"><button type="button" class="btn sm" data-ladd>${ic('plus')} Ajouter une ligne</button></td><td class="num"><b data-ltot>0 DA</b></td><td></td></tr></tfoot></table></div>${x.help?`<span class="help">${esc(x.help)}</span>`:''}</div></div>`;
+}
+function mountLines(form, x, init){
+  const box = form.querySelector(`[data-lines="${x.key}"]`); const tb = box.querySelector('tbody');
+  const opts = sel => `<option value="">— choisir un article —</option>` + x.options.map(([v,l])=>`<option value="${esc(v)}" ${v===sel?'selected':''}>${esc(l)}</option>`).join('');
+  const row = l => `<tr><td><select class="sel" data-la>${opts(l.articleId||'')}</select></td><td class="num"><input class="inp" type="number" min="1" data-lq value="${esc(l.qte??1)}"></td><td class="num"><input class="inp" type="number" min="0" data-lp value="${esc(l.pu??'')}"></td>${x.remise?`<td class="num"><input class="inp" type="number" min="0" max="100" data-lr value="${esc(l.remise??0)}"></td>`:''}<td class="num" data-lt>—</td><td><button type="button" class="ra del" data-ldel aria-label="Retirer la ligne">${ic('x')}</button></td></tr>`;
+  tb.innerHTML = (init.length ? init : [{}]).map(row).join('');
+  const recalc = () => { let t = 0; tb.querySelectorAll('tr').forEach(tr => { const q = +tr.querySelector('[data-lq]').value||0, p = +tr.querySelector('[data-lp]').value||0, r = x.remise ? +tr.querySelector('[data-lr]').value||0 : 0; const v = q*p*(1-r/100); t += v; tr.querySelector('[data-lt]').textContent = tr.querySelector('[data-la]').value ? da(v) : '—'; }); box.querySelector('[data-ltot]').textContent = da(t); x.onTotal && x.onTotal(t, form); };
+  box.addEventListener('change', e => { if (e.target.matches('[data-la]')) { const tr = e.target.closest('tr'); const p = tr.querySelector('[data-lp]'); if (e.target.value) { p.value = x.priceOf(e.target.value); if (x.defaultQty && +tr.querySelector('[data-lq]').value<=1) tr.querySelector('[data-lq]').value = x.defaultQty(e.target.value); } } recalc(); });
+  box.addEventListener('input', recalc);
+  box.addEventListener('click', e => { if (e.target.closest('[data-ladd]')) { tb.insertAdjacentHTML('beforeend', row({})); tb.lastElementChild.querySelector('select').focus(); recalc(); } const dl = e.target.closest('[data-ldel]'); if (dl) { if (tb.children.length>1) dl.closest('tr').remove(); else { tb.innerHTML = row({}); } recalc(); } });
+  recalc();
+}
+function readLines(form, x){
+  return [...form.querySelectorAll(`[data-lines="${x.key}"] tbody tr`)].map(tr => ({articleId:tr.querySelector('[data-la]').value, qte:+tr.querySelector('[data-lq]').value||0, pu:+tr.querySelector('[data-lp]').value||0, remise: x.remise ? +tr.querySelector('[data-lr]').value||0 : 0})).filter(l => l.articleId && l.qte>0);
+}
+/* ---------- actions CRUD génériques ---------- */
+function crudDo(cr, act, r){
+  if (act==='edit') { const l = cr.lock && cr.lock(r); if (l) { toast(l); return; } cr.edit(r); return; }
+  if (act==='dup') { cr.dup(r); return; }
+  if (act==='del') crudRemove(cr, r);
+}
+async function crudRemove(cr, r){
+  const why = cr.check && cr.check(r); if (why) { toast(why); return; }
+  const name = cr.name ? cr.name(r) : 'cet élément';
+  const ok = await confirmDlg({title:`Supprimer « ${esc(name)} » ?`, body: cr.warn ? cr.warn(r) : 'Cette suppression est enregistrée dans ce navigateur. Vous pourrez l’annuler juste après.'});
+  if (!ok) return;
+  closeDrawer();
+  undoable(`${name} supprimé${cr.fem?'e':''}`, () => crudDelete(cr, r));
+}
+function crudDelete(cr, r){ if (cr.onRemove) cr.onRemove(r); const arr = cr.list(); const i = arr.indexOf(r); if (i>=0) arr.splice(i,1); }
+function crudRemoveMany(cr, rows){
+  const ok = rows.filter(r => !(cr.check && cr.check(r))); const kept = rows.length - ok.length;
+  if (!ok.length) { toast(`Aucun élément supprimé : ${kept>1?'tous sont liés':'il est lié'} à d’autres documents.`); return; }
+  undoable(`${ok.length} élément${ok.length>1?'s':''} supprimé${ok.length>1?'s':''}${kept?` · ${kept} conservé${kept>1?'s':''} car lié${kept>1?'s':''} à d’autres documents`:''}`, () => { ok.forEach(r => crudDelete(cr, r)); });
 }
 const nextNum = (arr, key, prefix, width=5) => { const yr = TODAY.slice(2,4); const n = arr.reduce((m,x)=>{ const mm = String(x[key]||'').match(/(\d+)$/); return mm?Math.max(m,+mm[1]):m; },0)+1; return `${prefix}${yr}-${String(n).padStart(width,'0')}`; };
 const newId = p => p + Date.now().toString(36).toUpperCase() + Math.floor(Math.random()*1e4).toString(36).toUpperCase();

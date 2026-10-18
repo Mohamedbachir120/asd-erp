@@ -51,8 +51,8 @@ function openArticle(a){
      + sec('Stock par dépôt', miniTable(['Dépôt','#Quantité','#Valeur','État'], D.depots.map(d=>[esc(d.nom), num(a.stocks[d.id]||0), da((a.stocks[d.id]||0)*a.cmup), pill(stockStatut(a,d.id))])))
      + (a.perissable ? sec('Lots en stock (sortie FEFO)', miniTable(['Lot','Dépôt','#Qté','Péremption','État'], lotsOf(a.id).sort((x,y)=>x.peremption.localeCompare(y.peremption)).map(l=>[`<span class="mono">${esc(l.lot)}</span>`, esc(dep(l.depotId).code), num(l.qte), fd(l.peremption), pill(lotStatut(l))]))) : '')
      + sec('Derniers mouvements', miniTable(['Date','Type','Dépôt','#Qté','Réf.'], mv.map(m=>[fd(m.date), pill(m.type,'plain'), esc(dep(m.depotId).code)+(m.depotDestId?' → '+esc(dep(m.depotDestId).code):''), num(m.qte), `<span class="mono">${esc(m.reference)}</span>`]))),
-    foot:`<button class="btn" data-edit style="margin-right:auto">${ic('edit')} Modifier</button><button class="btn" data-adj>Ajuster</button><button class="btn primary" data-tr>Transférer</button>`,
-    onMount: d => { d.querySelector('[data-edit]').onclick = () => articleForm(a); d.querySelector('[data-adj]').onclick = () => mvtForm('Ajustement', a); d.querySelector('[data-tr]').onclick = () => mvtForm('Transfert', a); }});
+    ent:['articles',a], foot:`<button class="btn" data-adj style="margin-right:auto">Ajuster le stock</button><button class="btn primary" data-tr>Transférer</button>`,
+    onMount: d => { d.querySelector('[data-adj]').onclick = () => mvtForm('Ajustement', a); d.querySelector('[data-tr]').onclick = () => mvtForm('Transfert', a); }});
 }
 function articleForm(a){
   const isNew = !a || !a.id; a = a && a.id ? a : {};
@@ -61,12 +61,12 @@ function articleForm(a){
       {key:'marque',label:'Marque',required:true},{key:'methode',label:'Méthode de valorisation',type:'select',options:['FEFO','CMUP','FIFO']},
       {key:'prixAchat',label:'Prix d’achat (DA)',type:'number',required:true,min:0},{key:'prixVente',label:'Prix de vente HT (DA)',type:'number',required:true,min:0},
       {key:'stockMin',label:'Seuil minimum',type:'number',default:5,min:0},{key:'stockMax',label:'Seuil maximum',type:'number',default:30,min:0},
-      {key:'unite',label:'Unité de vente',default:'Boîte'},{key:'garantieMois',label:'Garantie (mois)',type:'number',default:0,min:0},{key:'perissable',label:'Péremption',type:'checkbox',hint:'Suivi par lot et date de péremption (FEFO)'},{key:'serialise',label:'Suivi',type:'checkbox',hint:'Suivre chaque équipement par n° de série'}],
-    values:a, onDelete: isNew?null:()=>{ D.articles.splice(D.articles.indexOf(a),1); save(); toast('Article supprimé'); render(); },
+      {key:'unite',label:'Unité de vente',default:'Boîte'},{key:'emplacement',label:'Emplacement',default:'A1-1'},{key:'garantieMois',label:'Garantie (mois)',type:'number',default:0,min:0},{key:'perissable',label:'Péremption',type:'checkbox',hint:'Suivi par lot et date de péremption (FEFO)'},{key:'serialise',label:'Suivi',type:'checkbox',hint:'Suivre chaque équipement par n° de série'}],
+    values:a, ent: isNew?null:['articles',a],
     onSave: v => { if (isNew) { const n = {id:newId('A'),cond:{buy:[50,500],big:[50,500],small:[1,20]},cmup:v.prixAchat,stocks:Object.fromEntries(D.depots.map(d=>[d.id,0])),emplacement:'A1-1',actif:true,...v}; D.articles.unshift(n); toast(`Article ${n.ref} créé`); } else { Object.assign(a,v); toast('Article mis à jour'); } save(); render(); }});
 }
 function lotCfg(){
-  return {id:'lots', noun:'les lots', rows:()=>(D.lots||[]).filter(l=>l.qte>0), onRow:l=>openArticle(art(l.articleId)), facets:['statut','depot'],
+  return {id:'lots', noun:'les lots', rows:()=>(D.lots||[]).filter(l=>l.qte>0), onRow:l=>openArticle(art(l.articleId)), add:()=>lotForm(), addLabel:'Nouveau lot', facets:['statut','depot'],
     columns:[{key:'lot',label:'N° de lot',render:r=>`<span class="mono">${esc(r.lot)}</span>`,strong:true},{key:'article',label:'Produit',get:r=>art(r.articleId).designation},{key:'categorie',label:'Catégorie',type:'enum',pill:false,get:r=>art(r.articleId).categorie},{key:'depot',label:'Dépôt',type:'enum',pill:false,get:r=>dep(r.depotId).nom},
       {key:'qte',label:'Quantité',type:'num',sum:true},{key:'unite',label:'Unité',type:'enum',pill:false,get:r=>art(r.articleId).unite,hidden:true},{key:'fabrication',label:'Fabrication',type:'date',hidden:true},{key:'peremption',label:'Péremption',type:'date'},
       {key:'jours',label:'Jours restants',type:'num',get:r=>daysBetween(TODAY,r.peremption),render:r=>{ const j = daysBetween(TODAY,r.peremption); return `<b style="color:${j<0?'var(--bad)':j<=90?'var(--bad)':j<=180?'var(--warn)':'var(--fg)'}">${j}</b>`; }},
@@ -146,13 +146,14 @@ function renderValo(el){
 }
 function invCfg(){
   return {id:'inventaires', noun:'les inventaires', rows:()=>D.inventaires, facets:['statut','depot'],
-    onRow: i => openDrawer({eyebrow:'Inventaire physique', title:i.num, body: kv([['Dépôt',esc(dep(i.depotId).nom)],['Date',fd(i.date)],['Type',esc(i.type)],['Responsable',esc(empName(i.responsable))],['Articles comptés',num(i.articlesComptes)],['Écarts détectés',num(i.ecarts)],['Valeur des écarts',da(i.valeurEcart)],['Statut',pill(i.statut)]]) + `<div class="callout ${i.ecarts?'warn':'ok'}">${i.ecarts?`Les ${i.ecarts} écarts ont été rapprochés automatiquement : un ajustement de stock a été généré pour chacun.`:'Aucun écart entre le stock théorique et le comptage.'}</div>`}),
-    add: () => { const d = D.depots[Math.floor(Math.random()*4)]; const ec = Math.floor(Math.random()*8); const i = {id:newId('I'),num:nextNum(D.inventaires,'num','INV-',3),date:TODAY,depotId:d.id,type:'Tournant',articlesComptes:Math.floor(D.articles.length/3),ecarts:ec,valeurEcart:-ec*9500,statut:'En cours',responsable:D.employes.find(e=>e.poste==='Chef magasinier'&&e.depotId===d.id)?.id}; D.inventaires.unshift(i); save(); toast(`Inventaire tournant ${i.num} lancé au ${d.nom}`); render(); }, addLabel:'Lancer un inventaire',
+    onRow: i => openDrawer({eyebrow:'Inventaire physique', title:i.num, ent:['inventaires',i], body: kv([['Dépôt',esc(dep(i.depotId).nom)],['Date',fd(i.date)],['Type',esc(i.type)],['Responsable',esc(empName(i.responsable))],['Articles comptés',num(i.articlesComptes)],['Écarts détectés',num(i.ecarts)],['Valeur des écarts',da(i.valeurEcart)],['Statut',pill(i.statut)]]) + `<div class="callout ${i.ecarts?'warn':'ok'}">${i.ecarts?`Les ${i.ecarts} écarts ont été rapprochés automatiquement : un ajustement de stock a été généré pour chacun.`:'Aucun écart entre le stock théorique et le comptage.'}</div>`}),
+    add: () => invForm(), addLabel:'Lancer un inventaire',
     columns:[{key:'num',label:'N°',render:r=>`<span class="mono">${r.num}</span>`},{key:'date',label:'Date',type:'date'},{key:'depot',label:'Dépôt',type:'enum',pill:false,get:r=>dep(r.depotId).nom},{key:'type',label:'Type',type:'enum',pill:false},{key:'articlesComptes',label:'Articles comptés',type:'num'},{key:'ecarts',label:'Écarts',type:'num'},{key:'valeurEcart',label:'Valeur des écarts',type:'money',sum:true},{key:'responsable',label:'Responsable',get:r=>empName(r.responsable)},{key:'statut',label:'Statut',type:'enum'}]};
 }
 function renderDepots(el){
   el.innerHTML = `<div class="grid g-2">${D.depots.map(d => { const v = sum(D.articles,a=>(a.stocks[d.id]||0)*a.cmup); const q = sum(D.articles,a=>a.stocks[d.id]||0); const r = D.articles.filter(a=>stockStatut(a,d.id)==='Rupture').length; const resp = D.employes.find(e=>e.poste==='Chef magasinier'&&e.depotId===d.id);
-    return `<div class="panel"><div class="panel-h"><h3>${esc(d.nom)}</h3><span class="mono muted">${d.code}</span></div>${kv([['Adresse',esc(d.adresse)],['Wilaya',esc(d.wilaya)],['Responsable',resp?esc(resp.prenom+' '+resp.nom):''],['Valeur du stock',`<b>${da(v)}</b>`],['Unités en stock',num(q)],['Articles en rupture',r?`<span style="color:var(--bad);font-weight:600">${r}</span>`:'0'],['Mouvements 30 j',num(D.mouvements.filter(m=>(m.depotId===d.id||m.depotDestId===d.id)&&m.date>=addDays(TODAY,-30)).length)]])}</div>`; }).join('')}</div>`;
+    return `<div class="panel"><div class="panel-h"><h3>${esc(d.nom)}</h3><span style="display:flex;align-items:center"><span class="mono muted">${d.code}</span><span class="card-acts" data-dep="${d.id}">${crudIcons(CRUD.depots,d)}</span></span></div>${kv([['Adresse',esc(d.adresse)],['Wilaya',esc(d.wilaya)],['Responsable',resp?esc(resp.prenom+' '+resp.nom):''],['Valeur du stock',`<b>${da(v)}</b>`],['Unités en stock',num(q)],['Articles en rupture',r?`<span style="color:var(--bad);font-weight:600">${r}</span>`:'0'],['Mouvements 30 j',num(D.mouvements.filter(m=>(m.depotId===d.id||m.depotDestId===d.id)&&m.date>=addDays(TODAY,-30)).length)]])}</div>`; }).join('')}<button class="add-card" data-newdep>${ic('plus')} Nouveau dépôt</button></div>`;
+  el.onclick = e => { if (e.target.closest('[data-newdep]')) { depotForm(); return; } const b = e.target.closest('[data-crud]'); if (!b) return; const d = D.depots.find(x=>x.id===b.closest('[data-dep]').dataset.dep); if (b.dataset.why) { toast(b.dataset.why); return; } crudDo(CRUD.depots, b.dataset.crud, d); };
 }
 
 /* ================= FOURNISSEURS & ACHATS ================= */
@@ -174,7 +175,7 @@ function achatCfg(){
 }
 function openAchat(b){
   const f = frs(b.fournisseurId); const i = BC_FLOW.indexOf(b.statut); const next = i<BC_FLOW.length-1 ? BC_FLOW[i+1] : null;
-  openDrawer({eyebrow:'Commande fournisseur', title:b.num,
+  openDrawer({eyebrow:'Commande fournisseur', title:b.num, ent:['achats',b],
     body:`<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">${pill(b.statut)} ${stepper(BC_FLOW,b.statut)} ${pill(b.rapprochement)}</div>`
       + kv([['Fournisseur',`<a href="#" data-f>${esc(f.raison)}</a> · ${esc(f.pays)}`],['Date',fd(b.date)],['Dépôt de réception',esc(dep(b.depotId).nom)],['Livraison prévue',fd(b.dateLivraisonPrevue)],['Livrée le',fd(b.dateLivraison)],['Conditions',esc(f.conditions)],['Échéance de paiement',fd(b.echeance)],['Montant TTC',`<b>${da(b.ttc)}</b>`],['Payé',da(b.paye)],['Reste à payer',da(achatReste(b))]])
       + sec('Rapprochement BC / BL / facture', miniTable(['Article','#Commandé','#Reçu','#Écart','#PU'], b.lignes.map(l=>[esc(art(l.articleId).designation), num(l.qte), b.statut==='Livrée'?num(l.qteRecue):'—', b.statut==='Livrée'?(l.qte-l.qteRecue?`<b style="color:var(--bad)">${num(l.qteRecue-l.qte)}</b>`:'0'):'—', da(l.pu)])) + `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px"><span class="pill ${b.num?'ok':''}">BC ${esc(b.num)}</span><span class="pill ${b.bl?'ok':''}">BL ${esc(b.bl||'en attente')}</span><span class="pill ${b.factureFrs?'ok':''}">Facture ${esc(b.factureFrs||'en attente')}</span></div>`),
@@ -189,14 +190,6 @@ function openAchat(b){
         D.ecritures.unshift({id:newId('EC'),num:nextNum(D.ecritures,'num','BQ-'),date:TODAY,journal:'BQ',libelle:`Paiement ${b.num} — ${f.raison}`,circuit:'A',lignes:[[f.pays==='Algérie'?'401000':'401100',m,0],['512100',0,m]],origine:'Fournisseurs',reference:b.num,statut:'Brouillard'}); save(); toast(`Paiement de ${da(m)} enregistré sur BNA`); openAchat(b); render(); };
     }});
 }
-function achatForm(){
-  const arts = D.articles.slice().sort((x,y)=>x.designation.localeCompare(y.designation,'fr')).map(x=>[x.id,`${x.designation} — ${da(x.prixAchat)}`]);
-  openForm({eyebrow:'Achats', title:'Nouvelle commande fournisseur', submitLabel:'Créer la commande',
-    fields:[{key:'fournisseurId',label:'Fournisseur',type:'select',options:D.fournisseurs.map(f=>[f.id,`${f.raison} · ${f.pays}`]),full:true},{key:'depotId',label:'Dépôt de réception',type:'select',options:D.depots.map(d=>[d.id,d.nom])},{key:'date',label:'Date',type:'date',default:TODAY},
-      {key:'a1',label:'Article',type:'select',options:arts,full:true},{key:'q1',label:'Quantité',type:'number',default:10,min:1},{key:'pu',label:'Prix unitaire (vide = prix d’achat)',type:'number'}],
-    onSave: v => { const f = frs(v.fournisseurId); const a = art(v.a1); const pu = v.pu||a.prixAchat; const ht = v.q1*pu; const bc = {id:newId('BC'),num:nextNum(D.achats,'num','BCF',4),date:v.date,fournisseurId:f.id,depotId:v.depotId,lignes:[{articleId:a.id,qte:+v.q1,pu,qteRecue:0}],montantHT:ht,tva:Math.round(ht*.19),ttc:Math.round(ht*1.19),statut:'Créée',dateLivraisonPrevue:addDays(v.date,f.pays==='Algérie'?7:40),dateLivraison:'',bl:'',factureFrs:'',rapprochement:'En attente',echeance:addDays(v.date,f.delaiPaiement+40),paye:0};
-      D.achats.unshift(bc); save(); toast(`${bc.num} créé`); render(); }});
-}
 function frsCfg(){
   return {id:'frs', noun:'les fournisseurs', rows:()=>D.fournisseurs, onRow:openFournisseur, facets:['pays','devise'], add:()=>frsForm(), addLabel:'Nouveau fournisseur',
     columns:[{key:'code',label:'Code',render:r=>`<span class="mono">${r.code}</span>`},{key:'raison',label:'Raison sociale',strong:true},{key:'pays',label:'Pays',type:'enum',pill:false},{key:'ville',label:'Ville'},{key:'devise',label:'Devise',type:'enum',pill:false},{key:'delaiPaiement',label:'Délai (j)',type:'num'},{key:'contact',label:'Contact'},{key:'tel',label:'Téléphone',hidden:true},
@@ -208,13 +201,13 @@ function openFournisseur(f){
   openDrawer({eyebrow:'Fournisseur', title:esc(f.raison),
     body: kv([['Code',`<span class="mono">${f.code}</span>`],['Pays / ville',esc(f.pays+' · '+f.ville)],['Devise',esc(f.devise)],['Contact',esc(f.contact)],['Téléphone',`<span class="mono">${esc(f.tel)}</span>`],['E-mail',esc(f.email)],['NIF',f.nif?`<span class="mono">${f.nif}</span>`:''],['Conditions',esc(f.conditions)],['Délai de paiement',f.delaiPaiement+' jours'],['Total des achats',`<b>${da(sum(bcs,b=>b.ttc))}</b>`],['Reste dû',da(sum(bcs.filter(b=>b.statut==='Livrée'),achatReste))]])
       + sec('Historique des commandes', miniTable(['N°','Date','Statut','#TTC'], bcs.slice(0,12).map(b=>[`<span class="mono">${b.num}</span>`,fd(b.date),pill(b.statut),da(b.ttc)]))),
-    foot:`<button class="btn" data-e>${ic('edit')} Modifier</button>`, onMount:d=>{ d.querySelector('[data-e]').onclick=()=>frsForm(f); }});
+    ent:['frs',f], foot:`<button class="btn primary" data-bc>${ic('plus')} Nouvelle commande</button>`, onMount:d=>{ d.querySelector('[data-bc]').onclick=()=>{ achatForm(); setTimeout(()=>{ const s = document.getElementById('fld-fournisseurId'); if (s) s.value = f.id; },40); }; }});
 }
 function frsForm(f){
   const isNew = !f; f = f || {};
-  openForm({eyebrow:'Fournisseurs', title:isNew?'Nouveau fournisseur':'Modifier le fournisseur', values:f,
+  openForm({eyebrow:'Fournisseurs', title:isNew?'Nouveau fournisseur':'Modifier le fournisseur', values:f, ent:isNew?null:['frs',f],
     fields:[{key:'raison',label:'Raison sociale',required:true,full:true},{key:'pays',label:'Pays',default:'Algérie'},{key:'ville',label:'Ville'},{key:'devise',label:'Devise',type:'select',options:['DZD','EUR','USD']},{key:'delaiPaiement',label:'Délai de paiement (jours)',type:'number',default:30},{key:'contact',label:'Contact'},{key:'tel',label:'Téléphone'},{key:'email',label:'E-mail'},{key:'nif',label:'NIF'},{key:'conditions',label:'Conditions commerciales',type:'textarea',full:true}],
-    onSave: v => { if (isNew) D.fournisseurs.push({id:newId('F'),code:'FRS-'+String(D.fournisseurs.length+1).padStart(3,'0'),note:3,categoriePrincipale:'',...v}); else Object.assign(f,v); save(); toast('Fournisseur enregistré'); render(); }});
+    onSave: v => { if (isNew) D.fournisseurs.push({id:newId('F'),code:'FRS-'+String(D.fournisseurs.length+1).padStart(3,'0'),note:3,categoriePrincipale:'',...v}); else Object.assign(f,v); save(); toast(isNew?'Fournisseur créé':'Fournisseur mis à jour'); render(); }});
 }
 function echFrsCfg(){
   return {id:'echfrs', noun:'les échéances', rows:()=>D.achats.filter(b=>b.statut==='Livrée'&&achatReste(b)>0), onRow:openAchat, facets:['etat'],
@@ -261,25 +254,25 @@ function openClient(c){
       + sec('Factures ouvertes', miniTable(['Facture','Échéance','#Reste','Statut'], facs.filter(f=>facReste(f)>0).map(f=>[`<a href="#" data-fa="${f.id}" class="mono">${f.num}</a>`,fd(f.echeance),da(facReste(f)),pill(facStatut(f))])))
       + sec('Commandes en cours et livraisons', miniTable(['Commande','Statut','Livraison','#TTC'], cmds.map(x=>[`<span class="mono">${x.num}</span>`,pill(x.statut),x.statutLivraison?pill(x.statutLivraison):'—',da(x.ttc)])))
       + sec('Tickets SAV', miniTable(['Ticket','Date','Statut'], D.tickets.filter(t=>t.clientId===c.id).slice(0,5).map(t=>[`<span class="mono">${t.num}</span>`,fd(t.date),pill(t.statut)]))),
-    foot:`<button class="btn" data-e style="margin-right:auto">${ic('edit')} Modifier</button><button class="btn" data-rl>Envoyer une relance</button><button class="btn primary" data-rg>Enregistrer un règlement</button>`,
+    ent:['clients',c], foot:`<button class="btn" data-nc style="margin-right:auto">${ic('plus')} Commande</button><button class="btn" data-rl>Envoyer une relance</button><button class="btn primary" data-rg>Enregistrer un règlement</button>`,
     onMount: d => {
       d.querySelectorAll('[data-fa]').forEach(a => a.onclick = e => { e.preventDefault(); openFacture(D.factures.find(f=>f.id===a.dataset.fa)); });
-      d.querySelector('[data-e]').onclick = () => clientForm(c);
+      d.querySelector('[data-nc]').onclick = () => { commandeForm(); setTimeout(()=>{ const s = document.getElementById('fld-clientId'); if (s) s.value = c.id; },40); };
       d.querySelector('[data-rg]').onclick = () => reglementForm(c.id);
       d.querySelector('[data-rl]').onclick = () => { const late = facs.filter(f=>facReste(f)>0 && f.echeance<TODAY); if (!late.length) { toast('Aucune facture échue pour ce client'); return; } late.forEach(f => D.relances.unshift({id:newId('RL'),date:TODAY,factureId:f.id,clientId:c.id,niveau:Math.min(3,D.relances.filter(r=>r.factureId===f.id).length+1),canal:'Email',statut:'Envoyée',montant:facReste(f)})); save(); toast(`${late.length} relance${late.length>1?'s':''} envoyée${late.length>1?'s':''} à ${c.email}`); };
     }});
 }
 function clientForm(c){
   const isNew = !c; c = c || {};
-  openForm({eyebrow:'Clients', title:isNew?'Nouveau client':'Modifier le client', values:c,
+  openForm({eyebrow:'Clients', title:isNew?'Nouveau client':'Modifier le client', values:c, ent:isNew?null:['clients',c],
     fields:[{key:'raison',label:'Raison sociale / nom',required:true,full:true},{key:'type',label:'Type',type:'select',options:[...new Set(D.clients.map(x=>x.type))]},{key:'wilaya',label:'Wilaya',type:'select',options:[...new Set(D.clients.map(x=>x.wilaya))].sort()},
       {key:'commercialId',label:'Commercial',type:'select',options:D.employes.filter(e=>e.poste==='Commercial terrain'&&e.statut==='Actif').map(e=>[e.id,e.prenom+' '+e.nom])},{key:'tel',label:'Téléphone'},{key:'email',label:'E-mail'},
-      {key:'nif',label:'NIF'},{key:'rc',label:'Registre du commerce'},{key:'plafond',label:'Plafond d’encours (DA)',type:'number',default:500000},{key:'delai',label:'Délai de paiement (jours)',type:'number',default:30},
-      {key:'assujettiTVA',label:'Fiscalité',type:'checkbox',hint:'Assujetti à la TVA (circuit A)',default:true,full:true},{key:'gros',label:'Segment',type:'checkbox',hint:'Client de vente en gros (grossiste, hôpital, revendeur…)',full:true}],
+      {key:'adresse',label:'Adresse',full:true},{key:'nif',label:'NIF'},{key:'rc',label:'Registre du commerce'},{key:'plafond',label:'Plafond d’encours (DA)',type:'number',default:500000},{key:'delai',label:'Délai de paiement (jours)',type:'number',default:30},
+      {key:'assujettiTVA',label:'Fiscalité',type:'checkbox',hint:'Assujetti à la TVA (circuit A)',default:true,full:true},{key:'gros',label:'Segment',type:'checkbox',hint:'Client de vente en gros (grossiste, hôpital, revendeur…)',full:true},{key:'bloque',label:'Blocage',type:'checkbox',hint:'Bloquer les nouvelles commandes de ce client',full:true}],
     onSave: v => { if (isNew) { const n = {id:newId('CL'),code:'CLI-'+String(D.clients.length+1).padStart(4,'0'),commune:v.wilaya,ai:'',dateCreation:TODAY,bloque:false,...v}; D.clients.unshift(n); toast(`Client ${n.code} créé`); } else { Object.assign(c,v); toast('Client mis à jour'); } save(); render(); }});
 }
 function factureCfg(){
-  return {id:'factures', noun:'les factures', rows:S.factures, onRow:openFacture, facets:['statut','circuit'],
+  return {id:'factures', noun:'les factures', rows:S.factures, onRow:openFacture, add:()=>factureForm(), addLabel:'Nouvelle facture', facets:['statut','circuit'],
     columns:[{key:'num',label:'Facture',render:r=>`<span class="mono">${r.num}</span>`,strong:true},{key:'date',label:'Date',type:'date'},{key:'client',label:'Client',get:r=>cli(r.clientId).raison},{key:'commercial',label:'Commercial',type:'enum',pill:false,get:r=>empName(r.commercialId),hidden:true},
       {key:'circuit',label:'Circuit',type:'enum',render:r=>circ(r.circuit),facetLabel:v=>v==='A'?'A · Soumis':'B · Non soumis'},{key:'ht',label:'HT',type:'money',hidden:true,sum:true},{key:'ttc',label:'TTC',type:'money',sum:true},{key:'regle',label:'Réglé',type:'money',sum:true},{key:'reste',label:'Reste',type:'money',get:facReste,sum:true},
       {key:'echeance',label:'Échéance',type:'date'},{key:'jr',label:'Jours de retard',type:'num',get:joursRetard,render:r=>{const j=joursRetard(r);return j?`<b style="color:${j>60?'var(--bad)':'var(--warn)'}">${j}</b>`:'<span class="muted">—</span>';}},
@@ -290,9 +283,9 @@ function factureCfg(){
 function openFacture(f){
   const c = cli(f.clientId); const regs = D.reglements.filter(r=>r.factureId===f.id); const cmd = ix().cmd.get(f.commandeId);
   const ech = echAlloc(f);
-  openDrawer({eyebrow:'Facture client', title:f.num,
+  openDrawer({eyebrow:'Facture client', title:f.num, ent:['factures',f],
     body:`<div style="display:flex;gap:8px;flex-wrap:wrap">${pill(facStatut(f))} ${circ(f.circuit)}</div>`
-      + kv([['Client',`<a href="#" data-c>${esc(c.raison)}</a>`],['Date',fd(f.date)],['Échéance',fd(f.echeance)],['Montant HT',da(f.ht)],['TVA',da(f.tva)],['Montant TTC',`<b>${da(f.ttc)}</b>`],['Réglé',da(f.regle)],['Reste à payer',`<b>${da(facReste(f))}</b>`],['Commande liée',cmd?`<a href="#" data-cmd class="mono">${cmd.num}</a> · ${pill(cmd.statut)}`:''],['Statut livraison',cmd?.statutLivraison?pill(cmd.statutLivraison):'']])
+      + kv([['Client',`<a href="#" data-c>${esc(c.raison)}</a>`],f.objet?['Objet',esc(f.objet)]:null,['Date',fd(f.date)],['Échéance',fd(f.echeance)],['Montant HT',da(f.ht)],['TVA',da(f.tva)],['Montant TTC',`<b>${da(f.ttc)}</b>`],['Réglé',da(f.regle)],['Reste à payer',`<b>${da(facReste(f))}</b>`],['Commande liée',cmd?`<a href="#" data-cmd class="mono">${cmd.num}</a> · ${pill(cmd.statut)}`:''],['Statut livraison',cmd?.statutLivraison?pill(cmd.statutLivraison):'']])
       + (ech.length ? sec('Échéancier de paiement', miniTable(['Échéance','#Montant','#Payé','État'], ech.map(e=>[fd(e.date),da(e.montant),da(e.paye),pill(e.etat)]))) : '')
       + sec('Règlements', miniTable(['N°','Date','Mode','#Montant'], regs.map(r=>[`<span class="mono">${r.num}</span>`,fd(r.date),esc(r.mode)+(r.reference?` <span class="muted mono">${esc(r.reference)}</span>`:''),da(r.montant)])))
       + sec('Relances', miniTable(['Date','Niveau','Canal'], D.relances.filter(r=>r.factureId===f.id).map(r=>[fd(r.date),'Niveau '+r.niveau,esc(r.canal)]))),
@@ -346,6 +339,6 @@ function renderRelances(el){
     S.factures().filter(f=>facReste(f)>0&&f.echeance<TODAY).forEach(f => { const j = joursRetard(f); const lvl = j>=60?3:j>=30?2:j>=3?1:0; const done = D.relances.filter(r=>r.factureId===f.id).reduce((m,r)=>Math.max(m,r.niveau),0); if (lvl>done) { D.relances.unshift({id:newId('RL'),date:TODAY,factureId:f.id,clientId:f.clientId,niveau:lvl,canal:['','Email','SMS + Email','Courrier recommandé'][lvl],statut:'Envoyée',montant:facReste(f)}); n++; } });
     save(); toast(n ? `${n} relance${n>1?'s':''} générée${n>1?'s':''}` : 'Toutes les relances sont à jour'); render();
   };
-  renderTable(document.getElementById('relT'), {id:'relances', noun:'les relances', rows:S.relances, onRow:r=>openFacture(ix().fac.get(r.factureId)), facets:['niveau','canal'],
+  renderTable(document.getElementById('relT'), {id:'relances', noun:'les relances', rows:S.relances, onRow:r=>openFacture(ix().fac.get(r.factureId)), add:()=>relanceForm(), addLabel:'Nouvelle relance', facets:['niveau','canal','statut'],
     columns:[{key:'date',label:'Date',type:'date'},{key:'client',label:'Client',get:r=>cli(r.clientId).raison,strong:true},{key:'facture',label:'Facture',get:r=>ix().fac.get(r.factureId)?.num,render:r=>`<span class="mono">${ix().fac.get(r.factureId)?.num}</span>`},{key:'niveau',label:'Niveau',type:'enum',get:r=>'Niveau '+r.niveau,render:r=>pill('Niveau '+r.niveau,['','info','warn','bad'][r.niveau])},{key:'canal',label:'Canal',type:'enum',pill:false},{key:'montant',label:'Montant relancé',type:'money'},{key:'statut',label:'Statut',type:'enum'}]});
 }

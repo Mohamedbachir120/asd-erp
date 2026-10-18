@@ -9,35 +9,30 @@ function renderTresorerie(){
     kpis:[{l:'Disponible',v:kda(dispo),s:`${D.comptes.filter(c=>compteSolde(c)<c.seuil).length} compte(s) sous le seuil`,go:'comptes'},{l:'Chèques reçus à encaisser',v:kda(sum(port,c=>c.montant)),s:`${port.length} chèques · ${soon.length} à présenter sous 7 j`,dot:'var(--warn)',go:'cheques'},{l:'Chèques émis non débités',v:kda(sum(emis,c=>c.montant)),s:`${emis.length} chèques`,go:'cheques'},{l:'Opérations à rapprocher',v:nr.length,s:kda(sum(nr,t=>t.montant))+' en jeu',go:'rapprochement'}],
     actions:`<button class="btn" id="btnMv">${ic('plus')} Nouvelle opération</button>`,
     tabs:[{id:'comptes',label:'Comptes',cnt:D.comptes.length,render:renderComptes},{id:'mouvements',label:'Mouvements',cnt:D.tresorerie.length,render:el=>renderTable(el,tresoCfg())},{id:'cheques',label:'Chèques',cnt:D.cheques.length,render:renderCheques},{id:'previsionnel',label:'Prévisionnel',render:renderPrev},{id:'rapprochement',label:'Rapprochement bancaire',cnt:nr.length,render:renderRappro}]});
-  document.getElementById('btnMv').onclick = tresoForm;
+  document.getElementById('btnMv').onclick = () => tresoForm();
 }
 function renderComptes(el){
   el.innerHTML = `<div class="grid g-3" style="margin-bottom:14px">${D.comptes.map(c => { const s = compteSolde(c); const low = s<c.seuil; const last = D.tresorerie.filter(t=>t.compteId===c.id).slice(0,1)[0];
-    return `<div class="panel" style="${low?'border-color:var(--bad)':''}"><div class="panel-h"><h3>${esc(c.libelle)}</h3>${pill(c.type,'plain')}</div><div class="kpi" style="border:0;padding:0"><div class="k-v">${da(s)}</div><div class="k-s">${low?`<span style="color:var(--bad);font-weight:600">Sous le seuil critique de ${da(c.seuil)}</span>`:`Seuil d’alerte ${da(c.seuil)}`}</div></div><div style="margin-top:10px">${kv([['RIB',`<span class="mono" style="font-size:11.5px">${esc(c.rib)}</span>`],['Compte comptable',`<span class="mono">${c.compteCompta}</span>`],['Dernière opération',last?fd(last.date)+' · '+(last.sens==='Encaissement'?'+':'−')+da(last.montant):'']])}</div></div>`; }).join('')}</div>
+    return `<div class="panel" style="${low?'border-color:var(--bad)':''}"><div class="panel-h"><h3>${esc(c.libelle)}</h3><span style="display:flex;align-items:center">${pill(c.type,'plain')}<span class="card-acts" data-cpt="${c.id}">${crudIcons(CRUD.comptes,c)}</span></span></div><div class="kpi" style="border:0;padding:0"><div class="k-v">${da(s)}</div><div class="k-s">${low?`<span style="color:var(--bad);font-weight:600">Sous le seuil critique de ${da(c.seuil)}</span>`:`Seuil d’alerte ${da(c.seuil)}`}</div></div><div style="margin-top:10px">${kv([['RIB',`<span class="mono" style="font-size:11.5px">${esc(c.rib)}</span>`],['Compte comptable',`<span class="mono">${c.compteCompta}</span>`],['Dernière opération',last?fd(last.date)+' · '+(last.sens==='Encaissement'?'+':'−')+da(last.montant):'']])}</div></div>`; }).join('')}<button class="add-card" data-newcpt>${ic('plus')} Ouvrir un compte</button></div>
     <div class="panel"><div class="panel-h"><h3>Encaissements et décaissements par mois</h3><span class="sub">Tous comptes, 12 derniers mois</span></div><div class="chart-box"><canvas id="cFl" role="img" aria-label="Flux mensuels"></canvas></div>${legend([[SER()[2],'Encaissements'],[SER()[1],'Décaissements']])}</div>`;
+  el.onclick = e => { if (e.target.closest('[data-newcpt]')) { compteForm(); return; } const b = e.target.closest('[data-crud]'); if (!b) return; const c = D.comptes.find(x=>x.id===b.closest('[data-cpt]').dataset.cpt); if (b.dataset.why) { toast(b.dataset.why); return; } crudDo(CRUD.comptes, b.dataset.crud, c); };
   const months = []; for (let i=11;i>=0;i--){ const d = new Date(); d.setDate(1); d.setMonth(d.getMonth()-i); months.push(isoD(d).slice(0,7)); }
   const flow = s => months.map(m => sum(D.tresorerie.filter(t=>t.sens===s&&t.date.startsWith(m)&&t.categorie!=='Virement interne'),t=>t.montant));
   chart('cFl',{type:'bar',data:{labels:months.map(monthLabel),datasets:[{label:'Encaissements',data:flow('Encaissement'),backgroundColor:SER()[2],borderRadius:4,maxBarThickness:18},{label:'Décaissements',data:flow('Décaissement'),backgroundColor:SER()[1],borderRadius:4,maxBarThickness:18}]}});
 }
 function tresoCfg(){
   return {id:'treso', noun:'les mouvements', rows:()=>D.tresorerie, facets:['sens','compte','rap'], add:tresoForm, addLabel:'Nouvelle opération',
-    onRow: t => openDrawer({eyebrow:'Opération de trésorerie', title:esc(t.libelle), body:kv([['Date',fd(t.date)],['Compte',esc(ix().cpt.get(t.compteId).libelle)],['Sens',pill(t.sens,t.sens==='Encaissement'?'ok':'info')],['Catégorie',esc(t.categorie)],['Montant',`<b>${da(t.montant)}</b>`],['Référence',`<span class="mono">${esc(t.reference)}</span>`],['Rapprochement',pill(t.rapproche?'Rapproché':'Non rapproché')]])}),
+    onRow: t => openDrawer({eyebrow:'Opération de trésorerie', title:esc(t.libelle), ent:['treso',t], body:kv([['Date',fd(t.date)],['Compte',esc(ix().cpt.get(t.compteId).libelle)],['Sens',pill(t.sens,t.sens==='Encaissement'?'ok':'info')],['Catégorie',esc(t.categorie)],['Montant',`<b>${da(t.montant)}</b>`],['Référence',`<span class="mono">${esc(t.reference)}</span>`],['Rapprochement',pill(t.rapproche?'Rapproché':'Non rapproché')]])}),
     columns:[{key:'date',label:'Date',type:'date'},{key:'compte',label:'Compte',type:'enum',pill:false,get:r=>ix().cpt.get(r.compteId).libelle.split(' — ')[0]},{key:'sens',label:'Sens',type:'enum',render:r=>pill(r.sens,r.sens==='Encaissement'?'ok':'info')},{key:'categorie',label:'Catégorie',type:'enum',pill:false},{key:'libelle',label:'Libellé',strong:true},{key:'reference',label:'Référence',hidden:true,render:r=>`<span class="mono">${esc(r.reference)}</span>`},
       {key:'montant',label:'Montant',type:'money'},{key:'net',label:'Flux net',type:'money',get:r=>r.sens==='Encaissement'?r.montant:-r.montant,sum:true,render:r=>`<span style="color:${r.sens==='Encaissement'?'var(--ok)':'var(--fg)'}">${r.sens==='Encaissement'?'+':'−'}${da(r.montant)}</span>`},{key:'rap',label:'Rapprochement',type:'enum',get:r=>r.rapproche?'Rapproché':'Non rapproché'}],
     presets:[{name:'Décaissements > 1 M DA',rules:[{key:'sens',op:'in',v:'Décaissement'},{key:'montant',op:'gt',v:'1000000',v2:''}]},{name:'Charges fixes du mois',match:'all',rules:[{key:'date',op:'thismonth'},{key:'sens',op:'in',v:'Décaissement'},{key:'categorie',op:'nin',v:'Paiement fournisseur'}]},{name:'Non rapprochés > 15 jours',rules:[{key:'rap',op:'in',v:'Non rapproché'},{key:'date',op:'before',v:addDays(TODAY,-15),v2:''}]}]};
-}
-function tresoForm(){
-  openForm({eyebrow:'Trésorerie', title:'Nouvelle opération', submitLabel:'Enregistrer',
-    fields:[{key:'compteId',label:'Compte',type:'select',options:D.comptes.map(c=>[c.id,c.libelle]),full:true},{key:'sens',label:'Sens',type:'select',options:['Décaissement','Encaissement']},{key:'date',label:'Date',type:'date',default:TODAY},
-      {key:'categorie',label:'Catégorie',type:'select',options:[...new Set(D.tresorerie.map(t=>t.categorie))].sort()},{key:'montant',label:'Montant (DA)',type:'number',required:true,min:1},{key:'libelle',label:'Libellé',required:true,full:true},{key:'reference',label:'Référence'}],
-    onSave: v => { D.tresorerie.unshift({id:newId('TR'),...v,montant:+v.montant,rapproche:false}); save(); const c = ix().cpt.get(v.compteId); const s = compteSolde(c); toast(s<c.seuil?`Attention : ${c.libelle.split(' — ')[0]} passe sous son seuil critique (${da(s)})`:'Opération enregistrée'); render(); }});
 }
 const CHQ_NEXT = {'En portefeuille':['Remis à l’encaissement'],'Remis à l’encaissement':['Encaissé','Rejeté'],'Émis':['Encaissé']};
 function renderCheques(el){
   const soon = D.cheques.filter(c=>c.sens==='Reçu'&&c.statut==='En portefeuille'&&c.dateEcheance<=addDays(TODAY,7));
   el.innerHTML = `${soon.length?`<div class="callout warn" style="margin-bottom:14px">${ic('wallet','width="18" height="18"')}<div><b>${soon.length} chèque${soon.length>1?'s':''} en portefeuille à présenter sous 7 jours</b> pour ${da(sum(soon,c=>c.montant))}. ${soon.slice(0,3).map(c=>`${esc(c.tiers)} (${fd(c.dateEcheance)})`).join(', ')}${soon.length>3?'…':''}</div></div>`:''}<div id="chT"></div>`;
-  renderTable(document.getElementById('chT'), {id:'cheques', noun:'les chèques', rows:()=>D.cheques, facets:['sens','statut'],
-    onRow: c => openDrawer({eyebrow:`Chèque ${c.sens.toLowerCase()}`, title:`N° ${esc(c.num)}`, body:`<div>${pill(c.statut)}</div>`+kv([['Tiers',esc(c.tiers)],['Banque',esc(c.banque)],['Montant',`<b>${da(c.montant)}</b>`],['Date d’émission',fd(c.dateEmission)],['Échéance de présentation',fd(c.dateEcheance)],['Compte',esc(ix().cpt.get(c.compteId)?.libelle)],['Remis le',fd(c.dateRemise)],['Motif de rejet',esc(c.motifRejet)]])}),
+  renderTable(document.getElementById('chT'), {id:'cheques', noun:'les chèques', rows:()=>D.cheques, add:()=>chequeForm(), addLabel:'Nouveau chèque', facets:['sens','statut'],
+    onRow: c => openDrawer({eyebrow:`Chèque ${c.sens.toLowerCase()}`, title:`N° ${esc(c.num)}`, ent:['cheques',c], body:`<div>${pill(c.statut)}</div>`+kv([['Tiers',esc(c.tiers)],['Banque',esc(c.banque)],['Montant',`<b>${da(c.montant)}</b>`],['Date d’émission',fd(c.dateEmission)],['Échéance de présentation',fd(c.dateEcheance)],['Compte',esc(ix().cpt.get(c.compteId)?.libelle)],['Remis le',fd(c.dateRemise)],['Motif de rejet',esc(c.motifRejet)]])}),
     columns:[{key:'num',label:'N° chèque',render:r=>`<span class="mono">${esc(r.num)}</span>`},{key:'sens',label:'Sens',type:'enum',render:r=>pill(r.sens,r.sens==='Reçu'?'ok':'info')},{key:'tiers',label:'Tireur / bénéficiaire',strong:true},{key:'banque',label:'Banque',type:'enum',pill:false},{key:'montant',label:'Montant',type:'money',sum:true},{key:'dateEmission',label:'Émis le',type:'date'},{key:'dateEcheance',label:'Échéance',type:'date'},
       {key:'jours',label:'Jours restants',type:'num',get:r=>['Encaissé','Rejeté'].includes(r.statut)?'':daysBetween(TODAY,r.dateEcheance),render:r=>{ if(['Encaissé','Rejeté'].includes(r.statut)) return '<span class="muted">—</span>'; const j = daysBetween(TODAY,r.dateEcheance); return `<b style="color:${j<0?'var(--bad)':j<=7?'var(--warn)':'var(--fg)'}">${j}</b>`; }},
       {key:'statut',label:'Statut',type:'enum',facetOptions:['En portefeuille','Remis à l’encaissement','Émis','Encaissé','Rejeté']},{key:'compte',label:'Compte',type:'enum',pill:false,get:r=>ix().cpt.get(r.compteId)?.libelle.split(' — ')[0],hidden:true}],
@@ -102,26 +97,18 @@ function renderCompta(){
   document.querySelectorAll('#circSeg button').forEach(b => b.onclick = () => { UI.circuit = b.dataset.v; saveUI(); render(); });
 }
 function ecritureCfg(){
-  return {id:'ecritures', noun:'les écritures', rows:()=>D.ecritures.filter(circuitFilter), onRow:openEcriture, facets:['journal','origine','statut'], add:ecritureForm, addLabel:'Écriture manuelle',
+  return {id:'ecritures', noun:'les écritures', rows:()=>D.ecritures.filter(circuitFilter), onRow:openEcriture, facets:['journal','origine','statut'], add:()=>ecritureForm(), addLabel:'Écriture manuelle',
     columns:[{key:'num',label:'Pièce',render:r=>`<span class="mono">${r.num}</span>`},{key:'date',label:'Date',type:'date'},{key:'journal',label:'Journal',type:'enum',pill:false},{key:'libelle',label:'Libellé',strong:true},{key:'circuit',label:'Circuit',type:'enum',render:r=>circ(r.circuit),facetLabel:v=>v==='A'?'A · Soumis':'B · Non soumis'},{key:'origine',label:'Origine',type:'enum',pill:false},{key:'comptes',label:'Comptes',get:r=>r.lignes.map(l=>l[0]).join(' '),render:r=>`<span class="mono muted" style="font-size:11.5px">${r.lignes.map(l=>l[0]).join(' · ')}</span>`},{key:'montant',label:'Montant',type:'money',get:ecMontant,sum:true},{key:'statut',label:'Statut',type:'enum'}],
     presets:[{name:'Brouillard à valider',facets:{statut:['Brouillard']}},{name:'Ventes circuit B du mois',rules:[{key:'journal',op:'in',v:'VTE'},{key:'circuit',op:'in',v:'B'},{key:'date',op:'thismonth'}]},{name:'Mouvements sur la TVA collectée',rules:[{key:'comptes',op:'contains',v:'445700',v2:''}]}]};
 }
 function openEcriture(e){
   const dr = sum(e.lignes,l=>l[1]), cr = sum(e.lignes,l=>l[2]);
-  openDrawer({eyebrow:`Journal ${e.journal}`, title:`Pièce ${e.num}`,
+  openDrawer({eyebrow:`Journal ${e.journal}`, title:`Pièce ${e.num}`, ent:['ecritures',e],
     body:`<div style="display:flex;gap:8px">${pill(e.statut)} ${circ(e.circuit)} <span class="pill plain">${esc(e.origine)}</span></div>` + kv([['Date',fd(e.date)],['Libellé',esc(e.libelle)],['Référence',`<span class="mono">${esc(e.reference)}</span>`]])
       + sec('Lignes', miniTable(['Compte','Intitulé','#Débit','#Crédit'], e.lignes.map(l=>[`<span class="mono">${l[0]}</span>`, esc(ix().pc.get(l[0])?.libelle||''), l[1]?da(l[1]):'', l[2]?da(l[2]):'']).concat([['','<b>Total</b>',`<b>${da(dr)}</b>`,`<b>${da(cr)}</b>`]])))
       + `<div class="callout ${dr===cr?'ok':'bad'}">${dr===cr?'Écriture équilibrée.':'Écriture déséquilibrée.'}</div>`,
     foot: e.statut==='Brouillard'?`<button class="btn primary" data-v>${ic('check')} Valider l’écriture</button>`:'',
     onMount: d => { const v = d.querySelector('[data-v]'); if (v) v.onclick = () => { e.statut='Validée'; save(); toast(`${e.num} validée`); closeDrawer(); render(); }; }});
-}
-function ecritureForm(){
-  const acc = D.planComptable.map(a=>[a.numero,`${a.numero} — ${a.libelle}`]);
-  openForm({eyebrow:'Comptabilité', title:'Écriture manuelle (opérations diverses)', submitLabel:'Passer l’écriture',
-    fields:[{key:'date',label:'Date',type:'date',default:TODAY},{key:'journal',label:'Journal',type:'select',options:['OD','BQ','CAI','ACH','VTE']},{key:'circuit',label:'Circuit',type:'select',options:[['A','A · soumis à la fiscalité'],['B','B · non soumis']]},{key:'montant',label:'Montant (DA)',type:'number',required:true,min:1},
-      {key:'debit',label:'Compte débité',type:'select',options:acc,full:true},{key:'credit',label:'Compte crédité',type:'select',options:acc,full:true},{key:'libelle',label:'Libellé',required:true,full:true}],
-    values:{debit:'615000',credit:'512100'},
-    onSave: v => { if (v.debit===v.credit) return 'Les comptes débité et crédité doivent être différents.'; const m = +v.montant; D.ecritures.unshift({id:newId('EC'),num:nextNum(D.ecritures,'num',v.journal+'-'),date:v.date,journal:v.journal,libelle:v.libelle,circuit:v.circuit,lignes:[[v.debit,m,0],[v.credit,0,m]],origine:'Manuel',reference:'',statut:'Brouillard'}); save(); toast('Écriture passée au brouillard'); render(); }});
 }
 function accountMoves(){ const m = {}; D.ecritures.filter(circuitFilter).forEach(e => e.lignes.forEach(([c,d,cr]) => { const o = m[c] ||= {d:0,c:0}; o.d+=d; o.c+=cr; })); return m; }
 function renderBalance(el){
@@ -146,7 +133,7 @@ function renderAux(el){
   renderTable(el, {id:'aux', noun:'les comptes clients', rows:()=>rows, onRow:r=>openClient(r.c), columns:[{key:'code',label:'Compte auxiliaire',render:r=>`<span class="mono">411-${r.code.slice(4)}</span>`},{key:'raison',label:'Client',strong:true},{key:'debit',label:'Débit (factures)',type:'money',sum:true},{key:'credit',label:'Crédit (règlements)',type:'money',sum:true},{key:'solde',label:'Solde',type:'money',sum:true}],presets:[{name:'Soldes > 500 000 DA',rules:[{key:'solde',op:'gt',v:'500000',v2:''}]}]});
 }
 function planCfg(){
-  return {id:'plan', noun:'le plan comptable', rows:()=>D.planComptable, facets:['classe'], add:()=>openForm({eyebrow:'Plan comptable', title:'Nouveau compte', fields:[{key:'numero',label:'Numéro',required:true},{key:'classe',label:'Classe',type:'select',options:['1','2','3','4','5','6','7']},{key:'libelle',label:'Intitulé',required:true,full:true}], onSave:v=>{ if (D.planComptable.find(a=>a.numero===v.numero)) return 'Ce numéro de compte existe déjà.'; D.planComptable.push({numero:v.numero,libelle:v.libelle,classe:+v.classe,actif:true}); D.planComptable.sort((a,b)=>a.numero.localeCompare(b.numero)); save(); toast('Compte ajouté'); render(); }}), addLabel:'Nouveau compte',
+  return {id:'plan', noun:'le plan comptable', rows:()=>D.planComptable, facets:['classe'], add:()=>planForm(), addLabel:'Nouveau compte',
     columns:[{key:'numero',label:'Numéro',render:r=>`<span class="mono">${r.numero}</span>`},{key:'libelle',label:'Intitulé',strong:true},{key:'classe',label:'Classe',type:'enum',pill:false,get:r=>String(r.classe),facetLabel:v=>({1:'1 · Capitaux',2:'2 · Immobilisations',3:'3 · Stocks',4:'4 · Tiers',5:'5 · Financiers',6:'6 · Charges',7:'7 · Produits'})[v]},{key:'mouv',label:'Écritures',type:'num',get:r=>D.ecritures.filter(e=>e.lignes.some(l=>l[0]===r.numero)).length}],
     onRow: r => { UI.glCompte=r.numero; UI.tabs.compta='gl'; saveUI(); render(); }};
 }
@@ -186,16 +173,16 @@ function openEmploye(e){
       + (team.length?sec(`Équipe (${team.length})`, team.map(t=>esc(t.prenom+' '+t.nom)+' <span class="muted">· '+esc(t.poste)+'</span>').join('<br>')):'')
       + sec('Congés', miniTable(['Type','Du','Au','#Jours','Statut'], cg.map(c=>[esc(c.type),fd(c.debut),fd(c.fin),c.jours,pill(c.statut)])))
       + sec('Éléments variables', miniTable(['Mois','Type','#Montant'], vr.map(v=>[v.mois,esc(v.type),da(v.montant)]))),
-    foot:`<button class="btn" data-e>${ic('edit')} Modifier</button><button class="btn primary" data-c>Demande de congé</button>`,
-    onMount: d => { d.querySelector('[data-e]').onclick = () => empForm(e); d.querySelector('[data-c]').onclick = () => congeForm(e.id); }});
+    ent:['employes',e], foot:`<button class="btn" data-v style="margin-right:auto">Élément variable</button><button class="btn primary" data-c>Demande de congé</button>`,
+    onMount: d => { d.querySelector('[data-v]').onclick = () => { varForm(); setTimeout(()=>{ const s = document.getElementById('fld-employeId'); if (s) s.value = e.id; },40); }; d.querySelector('[data-c]').onclick = () => congeForm(e.id); }});
 }
 function empForm(e){
   const isNew = !e; e = e || {};
-  openForm({eyebrow:'RH', title:isNew?'Nouvel employé':'Modifier la fiche', values:e,
+  openForm({eyebrow:'RH', title:isNew?'Nouvel employé':'Modifier la fiche', values:e, ent:isNew?null:['employes',e],
     fields:[{key:'prenom',label:'Prénom',required:true},{key:'nom',label:'Nom',required:true},{key:'poste',label:'Poste',required:true},{key:'departement',label:'Département',type:'select',options:[...new Set(D.employes.map(x=>x.departement))]},
       {key:'managerId',label:'Responsable',type:'select',allowEmpty:true,options:actifs().map(x=>[x.id,`${x.prenom} ${x.nom} · ${x.poste}`]),full:true},{key:'contrat',label:'Contrat',type:'select',options:['CDI','CDD','Période d’essai']},{key:'finContrat',label:'Fin de contrat',type:'date'},
-      {key:'dateEmbauche',label:'Date d’embauche',type:'date',default:TODAY},{key:'salaire',label:'Salaire de base (DA)',type:'number',default:45000},{key:'tel',label:'Téléphone'},{key:'cnas',label:'N° CNAS'},{key:'statut',label:'Statut',type:'select',options:['Actif','Sorti']}],
-    onSave: v => { if (v.contrat!=='CDI' && !v.finContrat) return 'Indiquez la date de fin pour un CDD ou une période d’essai.'; if (isNew) { const n = {id:newId('E'),matricule:'ASD-'+String(D.employes.length+101).padStart(4,'0'),sexe:'',soldeConges:0,depotId:'DEP1',wilaya:'Alger',...v}; D.employes.push(n); toast(`${n.prenom} ${n.nom} ajouté(e)`); } else { Object.assign(e,v); toast('Fiche mise à jour'); } save(); render(); }});
+      {key:'dateEmbauche',label:'Date d’embauche',type:'date',default:TODAY},{key:'salaire',label:'Salaire de base (DA)',type:'number',default:45000},{key:'tel',label:'Téléphone'},{key:'cnas',label:'N° CNAS'},{key:'wilaya',label:'Lieu de travail',type:'select',options:[...new Set(D.employes.map(x=>x.wilaya))].sort()},{key:'soldeConges',label:'Solde de congés (jours)',type:'number',min:0,default:0},{key:'statut',label:'Statut',type:'select',options:['Actif','Sorti']}],
+    onSave: v => { if (v.contrat!=='CDI' && !v.finContrat) return 'Indiquez la date de fin pour un CDD ou une période d’essai.'; if (isNew) { const n = {id:newId('E'),matricule:'ASD-'+String(D.employes.length+101).padStart(4,'0'),sexe:'',soldeConges:0,depotId:'DEP1',wilaya:'Alger',...v}; D.employes.push(n); toast(`${n.prenom} ${n.nom} ajouté(e)`); } else { if (v.statut==='Sorti' && e.statut!=='Sorti') v.dateSortie = TODAY; Object.assign(e,v); toast('Fiche mise à jour'); } save(); render(); }});
 }
 function contratCfg(){
   return {id:'contrats', noun:'les contrats', rows:()=>actifs().filter(e=>e.contrat!=='CDI'), onRow:openEmploye, facets:['contrat','alerte'],
@@ -211,14 +198,8 @@ function congeCfg(){
     onAction: (a, c) => { const e = emp(c.employeId); if (a==='ok') { if (c.type==='Congé annuel' && e.soldeConges < c.jours) { toast(`Solde insuffisant : ${e.soldeConges} jours disponibles`); return; } c.statut='Approuvé'; if (c.type==='Congé annuel') e.soldeConges -= c.jours; toast(`Congé de ${e.prenom} ${e.nom} approuvé · solde ${e.soldeConges} j`); } else { c.statut='Refusé'; toast('Demande refusée'); } save(); render(); },
     presets:[{name:'En attente de validation',facets:{statut:['En attente']}},{name:'Absences en cours',rules:[{key:'statut',op:'in',v:'Approuvé'},{key:'debut',op:'before',v:addDays(TODAY,1),v2:''},{key:'fin',op:'after',v:addDays(TODAY,-1),v2:''}]},{name:'Arrêts maladie',rules:[{key:'type',op:'in',v:'Maladie'}]}]};
 }
-function congeForm(eid){
-  openForm({eyebrow:'RH', title:'Demande de congé', submitLabel:'Envoyer la demande',
-    fields:[{key:'employeId',label:'Employé',type:'select',options:actifs().map(e=>[e.id,`${e.prenom} ${e.nom} · solde ${e.soldeConges} j`]),full:true},{key:'type',label:'Type',type:'select',options:['Congé annuel','Maladie','Exceptionnel','Récupération','Sans solde']},{key:'debut',label:'Du',type:'date',default:addDays(TODAY,7),required:true},{key:'fin',label:'Au (inclus)',type:'date',default:addDays(TODAY,11),required:true},{key:'motif',label:'Motif',full:true}],
-    values:{employeId:eid},
-    onSave: v => { if (v.fin < v.debut) return 'La date de fin précède la date de début.'; const j = daysBetween(v.debut,v.fin)+1; D.conges.unshift({id:newId('C'),...v,jours:j,statut:'En attente',dateDemande:TODAY}); save(); toast(`Demande de ${j} jour${j>1?'s':''} transmise pour validation`); render(); }});
-}
 function varCfg(){
-  return {id:'variables', noun:'les éléments variables', rows:()=>D.variables, onRow:v=>openEmploye(emp(v.employeId)), facets:['nature','mois'], add:()=>openForm({eyebrow:'Paie', title:'Élément variable', fields:[{key:'employeId',label:'Employé',type:'select',options:actifs().map(e=>[e.id,`${e.prenom} ${e.nom}`]),full:true},{key:'mois',label:'Mois',type:'month',default:TODAY.slice(0,7)},{key:'nature',label:'Nature',type:'select',options:['Prime','Retenue','Avance']},{key:'type',label:'Libellé',required:true,default:'Prime de rendement'},{key:'montant',label:'Montant (DA)',type:'number',required:true},{key:'motif',label:'Motif',full:true}], onSave:v=>{ D.variables.unshift({id:newId('V'),...v,montant:+v.montant}); save(); toast('Élément variable ajouté à la paie du mois'); render(); }}), addLabel:'Ajouter',
+  return {id:'variables', noun:'les éléments variables', rows:()=>D.variables, onRow:v=>openEmploye(emp(v.employeId)), facets:['nature','mois'], add:()=>varForm(), addLabel:'Ajouter',
     columns:[{key:'mois',label:'Mois',type:'enum',pill:false},{key:'employe',label:'Employé',get:r=>empName(r.employeId),strong:true},{key:'departement',label:'Département',type:'enum',pill:false,get:r=>emp(r.employeId).departement},{key:'nature',label:'Nature',type:'enum',render:r=>pill(r.nature,{Prime:'ok',Retenue:'bad',Avance:'warn'}[r.nature])},{key:'type',label:'Libellé'},{key:'montant',label:'Montant',type:'money',sum:true},{key:'motif',label:'Motif',hidden:true}]};
 }
 function renderOrg(el){
@@ -260,7 +241,7 @@ function ticketCfg(){
 function openTicket(t){
   const p = ix().piece.get(t.pieceId) || {}; const a = art(p.articleId); const c = cli(t.clientId);
   const nexts = {Ouvert:['En cours'],'En cours':['Résolu'],Résolu:['Clôturé']}[t.statut] || [];
-  openDrawer({eyebrow:`Ticket SAV · ${esc(t.categorie)}`, title:t.num,
+  openDrawer({eyebrow:`Ticket SAV · ${esc(t.categorie)}`, title:t.num, ent:['tickets',t],
     body:`<div style="display:flex;gap:8px;flex-wrap:wrap">${pill(t.statut)} ${pill(t.priorite)} ${pill(t.eligible?'Sous garantie':'Non éligible')}</div>`
       + `<div class="callout ${t.eligible?'ok':'bad'}">${t.eligible?`Équipement sous garantie jusqu’au <b>${fd(p.finGarantie)}</b> au moment de l’ouverture : prise en charge gratuite.`:`Garantie expirée le <b>${fd(p.finGarantie)}</b> : intervention facturable sur devis.`}</div>`
       + kv([['Client',`<a href="#" data-c>${esc(c.raison)}</a>`],['Commercial',esc(empName(t.commercialId))],['Équipement',`${esc(a.designation)}<div class="mono muted" style="font-size:11.5px">${esc(p.serial)}</div>`],['Vendue le',fd(p.dateVente)],['Commande',`<span class="mono">${esc(ix().cmd.get(t.commandeId)?.num||'')}</span>`],['Technicien',`<select class="sel" id="tkA">${D.employes.filter(e=>e.departement==='Service technique'&&e.statut==='Actif').map(e=>`<option value="${e.id}" ${e.id===t.assigneId?'selected':''}>${esc(e.prenom+' '+e.nom)}</option>`).join('')}</select>`],['Description',esc(t.description)]])
@@ -288,7 +269,7 @@ function ticketForm(serial){
     }});
 }
 function pieceCfg(){
-  return {id:'pieces', noun:'les pièces', rows:()=>D.pieces.filter(p=>!p.clientId || inScope(p.clientId)), onRow:openPiece, facets:['statut'],
+  return {id:'pieces', noun:'les équipements', rows:()=>D.pieces.filter(p=>!p.clientId || inScope(p.clientId)), onRow:openPiece, add:()=>pieceForm(), addLabel:'Nouvel équipement', facets:['statut'],
     columns:[{key:'serial',label:'N° de série',render:r=>`<span class="mono">${r.serial}</span>`,strong:true},{key:'article',label:'Article',get:r=>art(r.articleId).designation},{key:'categorie',label:'Catégorie',type:'enum',pill:false,get:r=>art(r.articleId).categorie},{key:'statut',label:'Cycle de vie',type:'enum',facetOptions:LIFE},{key:'client',label:'Client',get:r=>r.clientId?cli(r.clientId).raison:''},{key:'dateEntree',label:'Entrée en stock',type:'date',hidden:true},{key:'dateVente',label:'Vendue le',type:'date'},{key:'garantieMois',label:'Garantie (mois)',type:'num',hidden:true},{key:'finGarantie',label:'Fin de garantie',type:'date'},
       {key:'reste',label:'Jours de garantie restants',type:'num',get:r=>r.finGarantie?Math.max(0,daysBetween(TODAY,r.finGarantie)):'',render:r=>{ if(!r.finGarantie) return '<span class="muted">—</span>'; const j = daysBetween(TODAY,r.finGarantie); return j<0?'<span class="muted">0</span>':`<b style="color:${j<=30?'var(--warn)':'var(--fg)'}">${j}</b>`; }},{key:'depot',label:'Dépôt',type:'enum',pill:false,get:r=>dep(r.depotId).code,hidden:true},{key:'tickets',label:'Tickets',type:'num',get:r=>D.tickets.filter(t=>t.pieceId===r.id).length}],
     presets:[{name:'Garantie expirant sous 30 jours',rules:[{key:'statut',op:'in',v:'Sous garantie'},{key:'finGarantie',op:'next30'}]},{name:'Équipements avec plusieurs tickets',rules:[{key:'tickets',op:'gte',v:'2',v2:''}]},{name:'En stock depuis plus de 120 jours',rules:[{key:'statut',op:'in',v:'En stock'},{key:'dateEntree',op:'before',v:addDays(TODAY,-120),v2:''}]}]};
@@ -299,7 +280,7 @@ function lifeHtml(p){
 }
 function openPiece(p){
   const a = art(p.articleId); const tk = D.tickets.filter(t=>t.pieceId===p.id);
-  openDrawer({eyebrow:'Équipement suivi', title:`<span class="mono">${esc(p.serial)}</span>`,
+  openDrawer({eyebrow:'Équipement suivi', title:`<span class="mono">${esc(p.serial)}</span>`, ent:['pieces',p],
     body: lifeHtml(p) + kv([['Article',esc(a.designation)],['Référence',`<span class="mono">${esc(a.ref)}</span>`],['Statut',pill(p.statut)],['Entrée en stock',fd(p.dateEntree)+' · '+esc(dep(p.depotId).nom)],['Client',p.clientId?esc(cli(p.clientId).raison):''],['Vendue le',fd(p.dateVente)],['Garantie',p.garantieMois?p.garantieMois+' mois':''],['Fin de garantie (calculée à la vente)',fd(p.finGarantie)]])
       + sec('Tickets liés', miniTable(['Ticket','Date','Statut'], tk.map(t=>[`<span class="mono">${t.num}</span>`,fd(t.date),pill(t.statut)]))),
     foot: p.clientId ? `<button class="btn primary" data-t>Ouvrir un ticket pour cet équipement</button>` : '',
