@@ -21,4 +21,7 @@ Every list has advanced filtering: AND/OR condition builder, status chips with c
 Open `dist/index.html` in a browser. Charts load Chart.js 4.4.1 from cdnjs.
 
 ## Build
-Sources are in `src/`. Run `./build.sh` to regenerate `dist/index.html`.
+Sources are in `src/`. Run `./build.sh` to regenerate `dist/index.html` (also copied to `index.html` at the root).
+
+## Deploy (Vercel)
+`vercel.json` runs `build.sh` and serves the `dist/` folder, so the app loads at the site root.
